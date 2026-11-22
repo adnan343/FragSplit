@@ -1,0 +1,41 @@
+name: Verify store
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check PostgreSQL invariants and API contracts
+        run: bash scripts/test-api.sh
+      - run: npm install --global pnpm@11.25.0
+      - name: Check web source
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm lint
+          pnpm exec prettier --check app components lib e2e
+          pnpm build
+          pnpm typecheck
+          pnpm exec playwright install --with-deps chromium
+      - name: Exercise production containers
+        run: |
+          python3 scripts/dev-env.py
+          docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.mailpit.yml up --build -d
+          curl --retry 45 --retry-delay 2 --retry-all-errors -fsS http://localhost:3000/ -o /dev/null
+          set -a
+          source .env
+          set +a
+          cd apps/web
+          pnpm e2e
+      - if: always()
+        run: |
+          if [ -f .env ]; then docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.mailpit.yml down -v; fi

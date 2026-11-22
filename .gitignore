@@ -1,0 +1,25 @@
+node_modules/
+.next/
+bin/
+obj/
+.env
+.env.*
+!.env.example
+uploads/
+test-results/
+playwright-report/
+*.tsbuildinfo
+.artifacts/
+.codex-attachments/
+.codex/
+.agents/
+.aws/
+
+# Local credentials and database backups
+*.pem
+*.key
+*.pfx
+*.p12
+*.dump
+*.sql.gz
+*.backup

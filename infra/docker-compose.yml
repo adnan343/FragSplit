@@ -1,0 +1,53 @@
+name: fragsplit
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: fragsplit
+      POSTGRES_USER: fragsplit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fragsplit -d fragsplit"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    build: ../apps/api
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      ConnectionStrings__Shop: "Host=db;Database=fragsplit;Username=fragsplit;Password=${POSTGRES_PASSWORD}"
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
+      SSLCOMMERZ_STORE_ID: ${SSLCOMMERZ_STORE_ID:-}
+      SSLCOMMERZ_STORE_PASSWORD: ${SSLCOMMERZ_STORE_PASSWORD:-}
+      SSLCOMMERZ_MODE: ${SSLCOMMERZ_MODE:-sandbox}
+      CALLBACK_BASE_URL: ${CALLBACK_BASE_URL:-}
+      RESERVATION_MINUTES: ${RESERVATION_MINUTES:-15}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      KEY_DIRECTORY: /app/keys
+    volumes: [uploads:/app/uploads, keys:/app/keys]
+    ports: ["127.0.0.1:5080:8080"]
+  web:
+    build: ../apps/web
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [api]
+volumes:
+  pgdata:
+  uploads:
+  keys:

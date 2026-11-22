@@ -1,0 +1,40 @@
+export type Order = {
+  reference: string;
+  accountOrder: boolean;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  area: string;
+  city: string;
+  postcode: string;
+  notes: string;
+  region: string;
+  method: string;
+  payment: string;
+  fulfillment: string;
+  stockState: string;
+  tracking: string;
+  shipping: number;
+  subtotal: number;
+  total: number;
+  expiresAt: string | null;
+  createdAt: string;
+  needsReview: boolean;
+  verification: string;
+  lines: {
+    id: number;
+    name: string;
+    brand: string;
+    sizeMl: number;
+    quantity: number;
+    unitPrice: number;
+  }[];
+  history: {
+    id: number;
+    event: string;
+    reason: string;
+    at: string;
+    actor: string;
+  }[];
+};

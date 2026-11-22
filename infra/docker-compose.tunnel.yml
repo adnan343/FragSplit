@@ -1,0 +1,12 @@
+services:
+  web:
+    networks:
+      default: {}
+      tunnel:
+        aliases:
+          - fragsplit-store
+
+networks:
+  tunnel:
+    external: true
+    name: ${TUNNEL_NETWORK:-tunnel}

@@ -1,0 +1,13 @@
+services:
+  api:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_STARTTLS: "false"
+      SMTP_FROM: accounts@fragsplit.test
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+    depends_on: [mailpit]
+  mailpit:
+    image: axllent/mailpit:v1.27.4
+    ports: ["127.0.0.1:${MAILPIT_PORT:-8025}:8025"]
