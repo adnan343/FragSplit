@@ -1,5 +1,10 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { type APIRequestContext, test as base, expect } from "@playwright/test";
+import {
+  type APIRequestContext,
+  type Locator,
+  test as base,
+  expect,
+} from "@playwright/test";
 import { adminSession } from "./admin-session";
 
 const test = base.extend<{ admin: APIRequestContext }>({
@@ -16,6 +21,20 @@ const test = base.extend<{ admin: APIRequestContext }>({
     }
   },
 });
+
+async function expectImageLoaded(image: Locator) {
+  await image.scrollIntoViewIfNeeded();
+  await expect
+    .poll(
+      () =>
+        image.evaluate((element) => {
+          const img = element as HTMLImageElement;
+          return img.complete && img.naturalWidth > 0;
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+}
 
 test("guest discovers a fragrance and completes a multi-size COD order", async ({
   admin,
@@ -258,8 +277,26 @@ test.describe("signed-in administration", () => {
     await page.getByRole("button", { name: "Record adjustment" }).click();
     await expect(page.getByText(/Opening bottle/)).toBeVisible();
     await expect(row.getByRole("cell").nth(1)).toHaveText("80 ml");
-    await page.goto("/fragrances/" + slug);
+    await page.goto("/fragrances?search=" + encodeURIComponent(slug));
+    const listing = page.getByRole("link").filter({
+      has: page.getByRole("heading", { name: slug, level: 2, exact: true }),
+    });
+    await expectImageLoaded(
+      listing.getByRole("img", { name: "Illustrated amber", exact: true }),
+    );
+    await listing.click();
     await expect(page.getByRole("heading", { name: slug })).toBeVisible();
+    const galleryImage = page.locator(".detail-art").getByRole("img");
+    await expect(galleryImage).toHaveAttribute("alt", "Illustrated amber");
+    await expectImageLoaded(galleryImage);
+    const thumbnail = page.getByRole("button", {
+      name: "Illustrated citrus",
+      exact: true,
+    });
+    await expectImageLoaded(thumbnail.getByRole("img"));
+    await thumbnail.click();
+    await expect(galleryImage).toHaveAttribute("alt", "Illustrated citrus");
+    await expectImageLoaded(galleryImage);
     await expect(
       page.getByRole("button", { name: "30 ml", exact: true }),
     ).toBeEnabled();

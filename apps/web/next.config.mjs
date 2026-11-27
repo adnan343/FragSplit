@@ -3,12 +3,16 @@ const config = {
   experimental: { useTypeScriptCli: false },
   poweredByHeader: false,
   async rewrites() {
-    if (process.env.API_BEHIND_INGRESS === "true") return [];
+    // The image optimizer resolves uploaded media inside Next.js, outside ingress.
+    const source =
+      process.env.API_BEHIND_INGRESS === "true"
+        ? "/api/v1/media/:key"
+        : "/api/:path*";
     return [
       {
-        source: "/api/:path*",
+        source,
         destination:
-          (process.env.API_ORIGIN || "http://127.0.0.1:5080") + "/api/:path*",
+          (process.env.API_ORIGIN || "http://127.0.0.1:5080") + source,
       },
     ];
   },
