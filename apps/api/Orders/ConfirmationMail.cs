@@ -20,7 +20,7 @@ public sealed class ConfirmationMail
     static string Money(decimal value) =>
         "BDT " + value.ToString("N2", CultureInfo.InvariantCulture);
 
-    public static async Task Queue(ShopDb db, Order order)
+    public static async Task Queue(ShopDb db, Order order, IConfiguration config)
     {
         if (string.IsNullOrWhiteSpace(order.Email))
             return;
@@ -59,6 +59,9 @@ public sealed class ConfirmationMail
         var payment = paid
             ? $"Payment received: {Money(order.Total)}."
             : $"Due on delivery: {Money(balance)}.";
+        var origin = (config["PUBLIC_ORIGIN"] ?? "http://localhost:3000").TrimEnd('/');
+        var receipt =
+            $"\n\nTo receive a private receipt link, visit {origin}/orders?reference={Uri.EscapeDataString(order.Reference)} and use this email address.";
         db.Add(
             new ConfirmationMail
             {
@@ -66,7 +69,12 @@ public sealed class ConfirmationMail
                 Reference = order.Reference,
                 Recipient = order.Email,
                 Body =
-                    $"Hello {order.Name},\n\n{shop} confirmed your order {order.Reference}. {payment}\n\nYour itemized order slip is attached. Open it in your browser to print or save a PDF.",
+                    $"Hello {order.Name},\n\n{shop} confirmed your order {order.Reference}. {payment}\n\nYour itemized order slip is attached. Open it in your browser to print or save a PDF."
+                    + (
+                        order.AccountId == null
+                            ? receipt
+                            : $"\n\nView your order at {origin}/account."
+                    ),
                 Slip = slip,
                 NextAttempt = now,
             }

@@ -6,10 +6,13 @@ import { Product, lowest, money } from "@/lib/shop";
 export function Card({
   p,
   compact = false,
+  headingLevel = 2,
 }: {
   p: Product;
   compact?: boolean;
+  headingLevel?: 2 | 3;
 }) {
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   const price = lowest(p);
   const pic = p.images[0];
   const sizes = p.variants
@@ -42,7 +45,7 @@ export function Card({
         <p className="card-meta">
           {p.brand} <span> / </span> {p.category}
         </p>
-        <h3>{p.name}</h3>
+        <Heading className="card-title">{p.name}</Heading>
         {notes && <p className="card-notes">{notes}</p>}
         <div className="card-price">
           <span>

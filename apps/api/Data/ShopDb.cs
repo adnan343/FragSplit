@@ -49,6 +49,14 @@ public sealed class ShopDb(DbContextOptions<ShopDb> options) : DbContext(options
         b.Entity<Order>().HasIndex(x => x.Reference).IsUnique();
         b.Entity<Order>().HasIndex(x => x.RequestKey).IsUnique();
         b.Entity<Order>().HasIndex(x => new { x.StockState, x.ExpiresAt });
+        b.Entity<Order>()
+            .HasIndex(x => new
+            {
+                x.Method,
+                x.Fulfillment,
+                x.StockState,
+                x.ExpiresAt,
+            });
         b.Entity<Order>().HasIndex(x => x.ValidationId).IsUnique();
         b.Entity<Order>()
             .HasOne<Account>()
@@ -150,6 +158,7 @@ public class Order
     public decimal Total { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ExpiresAt { get; set; }
+    public DateTime? ReceiptLinkRequestedAt { get; set; }
     public DateTime? PaidAt { get; set; }
     public string? SessionKey { get; set; }
     public string? GatewayUrl { get; set; }
@@ -209,7 +218,7 @@ public class Zone
 public class Settings
 {
     public int Id { get; set; }
-    public string Name { get; set; } = "FragSplit";
+    public string Name { get; set; } = "VialMuse";
     public string Logo { get; set; } = "";
     public string Contact { get; set; } = "";
     public string ShippingPolicy { get; set; } = "Delivery charges are shown at checkout.";
@@ -229,6 +238,9 @@ public class Account
 {
     public Guid CartVersion { get; set; }
     public int SessionVersion { get; set; }
+    public bool Enabled { get; set; } = true;
+    public string? AdminTotpKey { get; set; }
+    public long? AdminTotpStep { get; set; }
     public string? RecoveryHash { get; set; }
     public string DisplayName { get; set; } = "";
     public string Phone { get; set; } = "";

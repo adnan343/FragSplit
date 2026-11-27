@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FragSplit;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 [Collection("shop")]
@@ -57,8 +59,8 @@ public class OrderTests(ShopFixture f)
             basket,
             new Customer(
                 "Test Customer",
-                "01700000000",
-                "shopper@example.test",
+                "017" + Random.Shared.Next(100_000_000).ToString("D8"),
+                Guid.NewGuid() + "@example.test",
                 "19 Sample Road",
                 "Dhaka",
                 "Dhanmondi",
@@ -69,6 +71,118 @@ public class OrderTests(ShopFixture f)
             q.GetProperty("signature").GetString()!,
             Guid.NewGuid()
         );
+    }
+
+    [Fact]
+    public async Task ConcurrentCodRequestsShareTheContactCapAndExpiredHoldsReleaseStock()
+    {
+        int id = await Product(f, 100);
+        using var client = f.CreateClient();
+        var first = await Prepare(client, id);
+        var outcomes = await Task.WhenAll(
+            Enumerable
+                .Range(0, 3)
+                .Select(i =>
+                    client.PostAsJsonAsync(
+                        "/api/v1/orders",
+                        first with
+                        {
+                            RequestKey = Guid.NewGuid(),
+                            Customer = first.Customer with
+                            {
+                                Phone =
+                                    i == 0 ? "+88 " + first.Customer.Phone : first.Customer.Phone,
+                                Email = $"{i}-{first.Customer.Email}",
+                            },
+                        }
+                    )
+                )
+        );
+        Assert.Equal(2, outcomes.Count(r => r.IsSuccessStatusCode));
+        Assert.Single(outcomes, r => r.StatusCode == HttpStatusCode.Conflict);
+        var expired = await f.Db(async db =>
+        {
+            Assert.Equal(20, (await db.Perfumes.FindAsync(id))!.ReservedMl);
+            var order = await db
+                .Orders.Where(o => o.Lines.Any(l => l.PerfumeId == id))
+                .OrderBy(o => o.Id)
+                .FirstAsync();
+            order.ExpiresAt = DateTime.UtcNow.AddHours(-1);
+            await db.SaveChangesAsync();
+            return order.Reference;
+        });
+        using var admin = await f.LoginAdmin();
+        var tooLate = await admin.PatchAsJsonAsync(
+            $"/api/v1/admin/orders/{expired}/status",
+            new Change("Confirmed", null, null)
+        );
+        Assert.Equal(HttpStatusCode.Conflict, tooLate.StatusCode);
+        using var scope = f.Services.CreateScope();
+        var reservations = scope.ServiceProvider.GetRequiredService<Reservations>();
+        await reservations.ExpireDue();
+        await reservations.ExpireDue();
+        await f.Db(async db =>
+        {
+            var order = await db.Orders.SingleAsync(o => o.Reference == expired);
+            Assert.Equal("Cancelled", order.Fulfillment);
+            Assert.Equal("Unpaid", order.Payment);
+            Assert.Equal("Released", order.StockState);
+            Assert.Equal(
+                1,
+                await db.Movements.CountAsync(m => m.OrderId == order.Id && m.Type == "Release")
+            );
+            Assert.Equal(10, (await db.Perfumes.FindAsync(id))!.ReservedMl);
+            return 0;
+        });
+        (await client.PostAsJsonAsync("/api/v1/orders", first)).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task GuestReceiptRecoveryOnlyEmailsTheOrderAddressAndExpires()
+    {
+        int id = await Product(f, 30);
+        using var buyer = f.CreateClient();
+        using var another = f.CreateClient();
+        var submission = await Prepare(buyer, id);
+        var response = await buyer.PostAsJsonAsync("/api/v1/orders", submission);
+        var reference = (await response.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("reference")
+            .GetString()!;
+        var status = $"/api/v1/orders/{reference}/status";
+        Assert.Equal(HttpStatusCode.NotFound, (await another.GetAsync(status)).StatusCode);
+        const string wrong = "wrong-address@example.test";
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (
+                await another.PostAsJsonAsync(
+                    "/api/v1/orders/receipt-link",
+                    new ReceiptLink(reference, wrong)
+                )
+            ).StatusCode
+        );
+        Assert.False(f.Mail.Messages.ContainsKey(wrong));
+        var email = submission.Customer.Email!;
+        Assert.Equal(
+            HttpStatusCode.NoContent,
+            (
+                await another.PostAsJsonAsync(
+                    "/api/v1/orders/receipt-link",
+                    new ReceiptLink(reference, email.ToUpperInvariant())
+                )
+            ).StatusCode
+        );
+        var token = f.Mail.Token(email);
+        Assert.StartsWith(ReceiptRecovery.Prefix, token);
+        another.DefaultRequestHeaders.Add("X-Order-Token", token);
+        (await another.GetAsync(status)).EnsureSuccessStatusCode();
+        var expired = f
+            .Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("vialmuse.guest-receipt.v1")
+            .ToTimeLimitedDataProtector()
+            .Protect(reference, DateTimeOffset.UtcNow.AddMinutes(-1));
+        another.DefaultRequestHeaders.Remove("X-Order-Token");
+        another.DefaultRequestHeaders.Add("X-Order-Token", ReceiptRecovery.Prefix + expired);
+        Assert.Equal(HttpStatusCode.NotFound, (await another.GetAsync(status)).StatusCode);
     }
 
     [Theory]
@@ -140,19 +254,10 @@ public class OrderTests(ShopFixture f)
             HttpStatusCode.NotFound,
             (await client.GetAsync("/api/v1/orders/" + reference + "/status")).StatusCode
         );
-        client.DefaultRequestHeaders.Add("X-Shop-Request", "1");
-        var login = await client.PostAsJsonAsync(
-            "/api/v1/auth/login",
-            new
-            {
-                email = Environment.GetEnvironmentVariable("ADMIN_EMAIL"),
-                password = Environment.GetEnvironmentVariable("ADMIN_PASSWORD"),
-            }
-        );
-        login.EnsureSuccessStatusCode();
+        using var admin = await f.LoginAdmin();
         foreach (var action in new[] { "Confirmed", "Processing", "Shipped", "Delivered" })
             (
-                await client.PatchAsJsonAsync(
+                await admin.PatchAsJsonAsync(
                     "/api/v1/admin/orders/" + reference + "/status",
                     new Change(action, "test", null)
                 )
@@ -164,7 +269,7 @@ public class OrderTests(ShopFixture f)
             )
         );
         (
-            await client.PatchAsJsonAsync(
+            await admin.PatchAsJsonAsync(
                 "/api/v1/admin/orders/" + reference + "/status",
                 new Change("Collect", null, null)
             )

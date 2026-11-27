@@ -1,4 +1,4 @@
-# Set up free Postmark email for FragSplit
+# Set up free Postmark email for VialMuse
 
 The shop will send verification links, password resets, and order slips from `orders@store.example.com`. Postmark handles outgoing mail. If you want to receive customer replies, arrange a monitored inbox or forwarding address separately.
 
@@ -8,7 +8,7 @@ Postmark asks for an address on a domain you control. Use an address such as `ow
 
 ## Connect the store
 
-1. **Create your Postmark account.** Choose the free Developer plan (100 emails per month) and confirm your signup email. Open **Servers**, then select or create a **Live** server for FragSplit. A Sandbox server simulates delivery. [Postmark pricing](https://postmarkapp.com/pricing)
+1. **Create your Postmark account.** Choose the free Developer plan (100 emails per month) and confirm your signup email. Open **Servers**, then select or create a **Live** server for VialMuse. A Sandbox server simulates delivery. [Postmark pricing](https://postmarkapp.com/pricing)
 2. **Add your sending domain.** In **Sender Signatures → Add Domain**, enter `store.example.com` without `https://`. Open its **DNS Settings** and keep that tab open. Postmark generates a DKIM record that proves you control the sending domain and a Return-Path record that handles delivery failures. [Postmark subdomain guide](https://postmarkapp.com/support/article/1198-how-to-send-from-subdomains)
 3. **Add two DNS records in Cloudflare.** Open **example.com → DNS → Records → Add record**. Enter the two rows below, saving each separately. Use the actual values shown by Postmark. In this Cloudflare zone the short record name includes `.store`. For example, a full hostname ending in `._domainkey.store.example.com` becomes `<selector>._domainkey.store`. Set TTL to **Auto**. These are new records beneath the existing store tunnel hostname. [Cloudflare instructions from Postmark](https://postmarkapp.com/support/article/adding-dkim-and-return-path-records-to-cloudflare)
 
@@ -17,9 +17,9 @@ Postmark asks for an address on a domain you control. Use an address such as `ow
    | TXT | Postmark DKIM hostname with the final `.example.com` removed | Entire DKIM text supplied by Postmark | N/A |
    | CNAME | Postmark Return-Path hostname with the final `.example.com` removed | Target supplied by Postmark, usually `pm.mtasv.net` | **DNS only** (gray cloud) |
 
-4. **Verify and request sending approval.** Click **Verify** for both records in Postmark. DNS checks can take up to 48 hours. As the account owner, select **Request approval**, give the store URL and explain that FragSplit sends customer-requested account verification, password resets, and order confirmations. Wait for approval before testing delivery to Gmail or another outside domain. [Domain verification](https://postmarkapp.com/support/article/how-do-i-verify-a-domain) · [Account approval](https://postmarkapp.com/support/article/1084-how-does-the-account-approval-process-work)
+4. **Verify and request sending approval.** Click **Verify** for both records in Postmark. DNS checks can take up to 48 hours. As the account owner, select **Request approval**, give the store URL and explain that VialMuse sends customer-requested account verification, password resets, guest receipt recovery and order confirmations. Wait for approval before testing delivery to Gmail or another outside domain. [Domain verification](https://postmarkapp.com/support/article/how-do-i-verify-a-domain) · [Account approval](https://postmarkapp.com/support/article/1084-how-does-the-account-approval-process-work)
 5. **Generate the SMTP credentials.** In the Live server's **Settings**, enable SMTP access. Open its **default Transactional message stream → Settings → SMTP Tokens** and generate a token. Save the **Access Key** and **Secret Key** privately. The secret appears once. [Postmark SMTP guide](https://postmarkapp.com/developer/user-guide/send-email-with-smtp)
-6. **Configure FragSplit on your PC.** Open the existing environment file with `nano .env` from the repository root. Set the entries below, replacing the last two placeholders with your keys. Update existing entries and append missing ones. Keep the other settings, including the database password. In nano, save with **Ctrl+O**, **Enter**, then exit with **Ctrl+X**.
+6. **Configure VialMuse on your PC.** Open the existing environment file with `nano .env` from the repository root. Set the entries below, replacing the last two placeholders with your keys. Update existing entries and append missing ones. Keep the other settings, including the database password. In nano, save with **Ctrl+O**, **Enter**, then exit with **Ctrl+X**.
 
    ```dotenv
    PUBLIC_ORIGIN=https://store.example.com

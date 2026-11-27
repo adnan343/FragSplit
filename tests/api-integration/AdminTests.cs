@@ -9,21 +9,73 @@ using Xunit;
 [Collection("shop")]
 public class AdminTests(ShopFixture f)
 {
-    async Task<HttpClient> Login()
+    [Fact]
+    public async Task AdminRequiresAnAuthenticatorAndRejectsCodeReplay()
     {
-        var c = f.CreateClient();
-        c.DefaultRequestHeaders.Add("X-Shop-Request", "1");
+        using var client = f.NewAdminClient();
+        using var another = f.NewAdminClient();
+        var credentials = f.AdminCredentials();
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await client.PostAsJsonAsync("/api/v1/auth/login", credentials)).StatusCode
+        );
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (
+                await client.PostAsJsonAsync(
+                    "/api/v1/auth/admin/login",
+                    credentials with
+                    {
+                        Code = "",
+                    }
+                )
+            ).StatusCode
+        );
         (
-            await c.PostAsJsonAsync(
-                "/api/v1/auth/login",
-                new
-                {
-                    email = Environment.GetEnvironmentVariable("ADMIN_EMAIL"),
-                    password = Environment.GetEnvironmentVariable("ADMIN_PASSWORD"),
-                }
-            )
+            await client.PostAsJsonAsync("/api/v1/auth/admin/login", credentials)
         ).EnsureSuccessStatusCode();
-        return c;
+        (await client.GetAsync("/api/v1/admin/me")).EnsureSuccessStatusCode();
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await another.PostAsJsonAsync("/api/v1/auth/admin/login", credentials)).StatusCode
+        );
+    }
+
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("role")]
+    [InlineData("version")]
+    public async Task ExistingAdminCookieIsRevokedWhenAccountChanges(string change)
+    {
+        using var client = await f.LoginAdmin();
+        var email = Environment.GetEnvironmentVariable("ADMIN_EMAIL");
+        try
+        {
+            await f.Db(async db =>
+            {
+                var account = await db.Accounts.SingleAsync(a => a.Email == email);
+                if (change == "disabled")
+                    account.Enabled = false;
+                if (change == "role")
+                    account.Role = "Customer";
+                if (change == "version")
+                    account.SessionVersion++;
+                return await db.SaveChangesAsync();
+            });
+            Assert.Equal(
+                HttpStatusCode.Unauthorized,
+                (await client.GetAsync("/api/v1/admin/me")).StatusCode
+            );
+        }
+        finally
+        {
+            await f.Db(db =>
+                db.Accounts.Where(a => a.Email == email)
+                    .ExecuteUpdateAsync(set =>
+                        set.SetProperty(a => a.Enabled, true).SetProperty(a => a.Role, "Admin")
+                    )
+            );
+        }
     }
 
     [Fact]
@@ -52,7 +104,7 @@ public class AdminTests(ShopFixture f)
     [Fact]
     public async Task OpeningStockIsRecordedOnceWithTheNewListing()
     {
-        using var client = await Login();
+        using var client = await f.LoginAdmin();
         const string path = "/api/v1/admin/perfumes";
         var input = new ProductInput(
             "Stock test",
@@ -122,7 +174,7 @@ public class AdminTests(ShopFixture f)
     [Fact]
     public async Task RejectsCrossOriginAdminWrite()
     {
-        using var c = await Login();
+        using var c = await f.LoginAdmin();
         c.DefaultRequestHeaders.Add("Origin", "https://unrelated.invalid");
         Assert.Equal(
             HttpStatusCode.Forbidden,
@@ -136,7 +188,7 @@ public class AdminTests(ShopFixture f)
     [InlineData(false, false, 20)]
     public async Task CancellationHonorsPhysicalRecovery(bool confirm, bool restore, int remaining)
     {
-        using var c = await Login();
+        using var c = await f.LoginAdmin();
         int id = await OrderTests.Product(f, 20);
         var s = await OrderTests.Prepare(c, id);
         var response = await c.PostAsJsonAsync("/api/v1/orders", s);
@@ -171,7 +223,7 @@ public class AdminTests(ShopFixture f)
     [Fact]
     public async Task AnalyticsUsesPaymentAndRefundDatesInDhaka()
     {
-        using var c = await Login();
+        using var c = await f.LoginAdmin();
         int id = await OrderTests.Product(f, 50);
         var orders = new List<Order>();
         // Isolate this run's dates from earlier test executions.

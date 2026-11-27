@@ -29,7 +29,7 @@ public static class CustomerAccounts
             )
             .SingleAsync();
 
-    public static Task SignIn(HttpContext ctx, Account user)
+    public static Task SignIn(HttpContext ctx, Account user, bool mfa = false)
     {
         var claims = new[]
         {
@@ -38,24 +38,32 @@ public static class CustomerAccounts
             new Claim(ClaimTypes.Role, user.Role),
             new Claim("sessionVersion", user.SessionVersion.ToString()),
         };
-        return ctx.SignInAsync(
-            "session",
-            new ClaimsPrincipal(new ClaimsIdentity(claims, "session"))
-        );
+        var identity = new ClaimsIdentity(claims, "session");
+        if (mfa)
+            identity.AddClaim(new Claim("amr", "mfa"));
+        return ctx.SignInAsync("session", new ClaimsPrincipal(identity));
     }
 
     public static async Task ValidateSession(CookieValidatePrincipalContext context)
     {
         var user = context.Principal!;
-        if (!user.IsInRole("Customer"))
+        var role = user.FindFirstValue(ClaimTypes.Role);
+        if (
+            role is not ("Customer" or "Admin")
+            || !int.TryParse(user.FindFirstValue(ClaimTypes.NameIdentifier), out var id)
+            || !int.TryParse(user.FindFirstValue("sessionVersion"), out var version)
+            || role == "Admin" && !user.HasClaim("amr", "mfa")
+        )
+        {
+            context.RejectPrincipal();
             return;
-        var id = CustomerId(user);
-        var version = await context
+        }
+        var current = await context
             .HttpContext.RequestServices.GetRequiredService<ShopDb>()
-            .Accounts.Where(a => a.Id == id && a.Role == "Customer")
-            .Select(a => (int?)a.SessionVersion)
-            .SingleOrDefaultAsync();
-        if (version == null || version.ToString() != user.FindFirstValue("sessionVersion"))
+            .Accounts.AnyAsync(a =>
+                a.Id == id && a.Role == role && a.Enabled && a.SessionVersion == version
+            );
+        if (!current)
             context.RejectPrincipal();
     }
 

@@ -4,7 +4,7 @@ services:
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       SMTP_STARTTLS: "false"
-      SMTP_FROM: accounts@fragsplit.test
+      SMTP_FROM: accounts@vialmuse.test
       SMTP_USERNAME: ""
       SMTP_PASSWORD: ""
     depends_on: [mailpit]

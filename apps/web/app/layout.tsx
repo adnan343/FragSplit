@@ -39,7 +39,6 @@ export default async function Layout({
             <strong>{store.name}</strong>
             <Link href="/guide">Delivery & returns</Link>
             <Link href="/orders">Find an order</Link>
-            <Link href="/admin">Store administration</Link>
             <span>Bangladesh · BDT ৳</span>
           </div>
         </footer>

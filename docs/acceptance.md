@@ -1,6 +1,22 @@
 # Implementation and verification results
 
-Local verification completed on 21 November 2026. A fresh default Compose deployment serves the six fictional seed listings. Browser tests used separate services and data.
+## VialMuse COD release, 27 November 2026
+
+| Check | Result |
+| --- | --- |
+| xUnit | 3 unit and 30 PostgreSQL integration tests passed. Coverage includes concurrent COD hold limits, expiry, guest receipt authorization, authenticator replay and administrator session revocation. |
+| Chromium | 15 tests passed against the production Compose images. Desktop and Pixel 7 emulation each verified that dropping an accepted checkout response and editing its notes leaves one order and one reservation. |
+| Ingress | 144 interleaved quotes succeeded across two shoppers on the staging ingress. Saturating one shopper's quote budget left the other shopper and checkout recovery available. Changing client-supplied headers from an untrusted peer kept a single IP budget. |
+| Backup rehearsal | The existing database, uploaded media and data protection keys restored to an isolated stack. The migration kept all 11 orders and five accounts. The API connected as its restricted PostgreSQL role, and the existing administrator signed in with MFA. |
+| Email | Checkout confirmation and guest receipt recovery passed with Mailpit. The configured external SMTP server accepted TLS authentication and the sender address. Delivery to an external inbox remains open. |
+| Build | Both production images built. TypeScript, ESLint and Prettier passed. The production JavaScript and NuGet dependency audits reported zero known vulnerabilities. |
+| Production | The Cloudflare hostname redirected HTTP to HTTPS and passed certificate verification. The live browser checks covered 36 route, viewport and theme combinations, the COD quote, closed gateway routes, administrator MFA and secure sign-out. The storefront had zero seed listings after cleanup. |
+
+Physical-device and screen-reader checks remain open. SSLCommerz's callback, refund and merchant-sandbox checks apply when online payments return. [Payment scope](payments.md)
+
+## Historical verification, 21 November 2026
+
+The following tables record verification of the initial build. Browser tests used separate services and seeded data.
 
 | Phase | Delivered | Verification at the phase boundary |
 | --- | --- | --- |

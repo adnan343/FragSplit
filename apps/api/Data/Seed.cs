@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,7 +9,12 @@ public static class Seed
     public static readonly string[] Categories = ["Middle Eastern", "Designer", "Niche"];
     public static readonly int[] Sizes = [3, 5, 10, 15, 30];
 
-    public static async Task Run(ShopDb db, IConfiguration config)
+    public static async Task Run(
+        ShopDb db,
+        IConfiguration config,
+        IDataProtectionProvider protection,
+        bool resetAdmin
+    )
     {
         await using var tx = await db.Database.BeginTransactionAsync();
         await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(8493021)");
@@ -31,16 +37,29 @@ public static class Seed
             );
         }
         var email = config["ADMIN_EMAIL"]?.Trim().ToLowerInvariant();
-        var password = config["ADMIN_PASSWORD"];
-        if (!string.IsNullOrEmpty(email) && !await db.Accounts.AnyAsync(x => x.Email == email))
+        if (resetAdmin && string.IsNullOrEmpty(email))
+            throw new InvalidOperationException("Set ADMIN_EMAIL to reset an administrator.");
+        if (!string.IsNullOrEmpty(email))
         {
-            if (password is null || password.Length < 14)
-                throw new InvalidOperationException(
-                    "Supply a bootstrap password of at least 14 characters."
-                );
-            var user = new Account { Email = email, Role = "Admin" };
-            user.Hash = new PasswordHasher<Account>().HashPassword(user, password);
-            db.Accounts.Add(user);
+            var existing = await db.Accounts.SingleOrDefaultAsync(x => x.Email == email);
+            if (existing != null && existing.Role != "Admin")
+                throw new InvalidOperationException("The bootstrap email belongs to a customer.");
+            if (resetAdmin && existing == null)
+                throw new InvalidOperationException("No administrator has the configured email.");
+            var user = existing ?? new Account { Email = email, Role = "Admin" };
+            if (existing == null || resetAdmin)
+            {
+                var password = config["ADMIN_PASSWORD"];
+                if (password is not { Length: >= 14 and <= 128 })
+                    throw new InvalidOperationException(
+                        "Supply an admin password of 14 to 128 characters."
+                    );
+                user.Hash = new PasswordHasher<Account>().HashPassword(user, password);
+            }
+            if (user.AdminTotpKey == null || resetAdmin)
+                AdminAccess.Enroll(user, config["ADMIN_TOTP_SECRET"], protection);
+            if (existing == null)
+                db.Add(user);
         }
         if (config.GetValue<bool>("SEED_DEMO") && !await db.Perfumes.AnyAsync())
         {

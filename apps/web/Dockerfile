@@ -5,7 +5,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 ARG API_ORIGIN=http://api:8080
-ENV API_ORIGIN=$API_ORIGIN NEXT_TELEMETRY_DISABLED=1
+ENV API_ORIGIN=$API_ORIGIN API_BEHIND_INGRESS=true NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 FROM node:24-bookworm-slim
 WORKDIR /app

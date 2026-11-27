@@ -56,7 +56,10 @@ public sealed class EmailAccountAccess(
         var registering = purpose == Create;
         string subject,
             body;
-        if ((registering && account == null) || (!registering && account?.Role == "Customer"))
+        if (
+            (registering && account == null)
+            || (!registering && account is { Role: "Customer", Enabled: true })
+        )
         {
             var minutes = registering ? 60 : 20;
             var token = Protector(purpose)
@@ -69,10 +72,8 @@ public sealed class EmailAccountAccess(
             var mode = !registering && account!.RecoveryHash != null ? "legacy" : purpose;
             var next =
                 input.Next == "/checkout"
-                || System.Text.RegularExpressions.Regex.IsMatch(
-                    input.Next ?? "",
-                    "^/orders/FS-[A-F0-9]{20}$"
-                )
+                || input.Next?.StartsWith("/orders/", StringComparison.Ordinal) == true
+                    && Checkout.IsReference(input.Next["/orders/".Length..])
                     ? "&next=" + Uri.EscapeDataString(input.Next!)
                     : "";
             var link = $"{origin}/account/confirm?mode={mode}{next}#token={token}";
@@ -155,7 +156,11 @@ public sealed class EmailAccountAccess(
                 $"SELECT * FROM \"Accounts\" WHERE \"Id\"={ticket.Id} FOR UPDATE"
             )
             .SingleOrDefaultAsync();
-        if (a?.Role != "Customer" || a.Email != ticket.Email || a.SessionVersion != ticket.Version)
+        if (
+            a is not { Role: "Customer", Enabled: true }
+            || a.Email != ticket.Email
+            || a.SessionVersion != ticket.Version
+        )
             throw InvalidLink();
         // Accounts created before email verification have a saved recovery hash.
         // Protect their private order history if an unverified address was mistyped.

@@ -9,9 +9,19 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "admin-setup",
+      testMatch: /admin\.setup\.ts$/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "desktop",
+      dependencies: ["admin-setup"],
+      use: { ...devices["Desktop Chrome"] },
+    },
     {
       name: "mobile",
+      dependencies: ["admin-setup"],
       use: {
         ...devices["Pixel 7"],
         defaultBrowserType: "chromium",

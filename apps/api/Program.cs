@@ -1,4 +1,7 @@
+using System.Net;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.RateLimiting;
 using FragSplit;
 using Microsoft.AspNetCore.Authentication;
@@ -46,9 +49,30 @@ builder
     });
 builder.Services.AddAuthorization(o =>
 {
-    o.AddPolicy("admin", p => p.RequireRole("Admin"));
+    o.AddPolicy("admin", p => p.RequireRole("Admin").RequireClaim("amr", "mfa"));
     o.AddPolicy("customer", p => p.RequireRole("Customer"));
 });
+var ingressSecret = Encoding.UTF8.GetBytes(config["INGRESS_SECRET"] ?? "");
+string ClientAddress(HttpContext context)
+{
+    var address = context.Connection.RemoteIpAddress;
+    if (
+        ingressSecret.Length >= 32
+        && context.Request.Headers.TryGetValue("X-VialMuse-Ingress", out var credential)
+        && credential.Count == 1
+        && CryptographicOperations.FixedTimeEquals(
+            ingressSecret,
+            Encoding.UTF8.GetBytes(credential.ToString())
+        )
+        && context.Request.Headers.TryGetValue("X-VialMuse-Client-IP", out var client)
+        && client.Count == 1
+        && IPAddress.TryParse(client[0], out var forwarded)
+    )
+        address = forwarded;
+    if (address?.IsIPv4MappedToIPv6 == true)
+        address = address.MapToIPv4();
+    return address?.ToString() ?? "local";
+}
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = 429;
@@ -56,16 +80,20 @@ builder.Services.AddRateLimiter(o =>
         var (name, max) in new[]
         {
             ("login", 10),
+            ("admin-login", 6),
             ("registration", 10),
             ("recovery", 8),
             ("email-confirm", 30),
-            ("purchase", 45),
+            ("checkout", 45),
+            ("quote", 90),
+            ("order-status", 90),
+            ("receipt-link", 8),
             ("browse", 240),
         }
     )
         o.AddPolicy(name, ctx =>
             RateLimitPartition.GetFixedWindowLimiter(
-                ctx.Connection.RemoteIpAddress?.ToString() ?? "local",
+                ClientAddress(ctx),
                 _ => new FixedWindowRateLimiterOptions
                 {
                     PermitLimit = max,
@@ -90,21 +118,13 @@ builder.Services.AddSingleton<IImageStore>(s =>
     string.IsNullOrWhiteSpace(config["S3_BUCKET"]) ? new LocalImages() : new BucketImages(config)
 );
 builder.Services.AddScoped<Checkout>();
+builder.Services.AddScoped<Reservations>();
+builder.Services.AddScoped<ReceiptRecovery>();
 builder.Services.AddScoped<EmailAccountAccess>();
 builder.Services.AddSingleton<IAccountEmail, SmtpAccountEmail>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<IPaymentAvailability, PaymentAvailability>();
-builder.Services.AddScoped<Settlement>();
 builder.Services.AddHostedService<ExpiryWorker>();
 builder.Services.AddHostedService<ConfirmationMailer>();
-builder
-    .Services.AddHttpClient<IPaymentGateway, SslCommerz>(http =>
-    {
-        http.Timeout = TimeSpan.FromSeconds(12);
-        http.MaxResponseContentBufferSize = 1024 * 1024;
-    })
-    .RemoveAllLoggers()
-    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 var app = builder.Build();
 app.UseExceptionHandler();
 app.Use(
@@ -122,10 +142,7 @@ app.Use(
                 || path.StartsWithSegments("/api/v1/account")
                 || (
                     ctx.Request.Cookies.ContainsKey("fs.session")
-                    && (
-                        path.StartsWithSegments("/api/v1/orders")
-                        || path == "/api/v1/payments/sslcommerz/initiate"
-                    )
+                    && path.StartsWithSegments("/api/v1/orders")
                 )
             )
             && (
@@ -160,18 +177,20 @@ app.MapGet("/health", async (ShopDb db) =>
         : Results.StatusCode(503)
 );
 var api = app.MapGroup("/api/v1");
-api.MapGet("/settings", async (ShopDb db, IPaymentAvailability payments) =>
+api.MapGet("/settings", async (ShopDb db) =>
     new
     {
         store = await db.Settings.SingleAsync(),
         zones = await db.Zones.Where(z => z.Active).OrderBy(z => z.Id).ToListAsync(),
-        online = payments.Enabled,
+        online = false,
     }
 );
 api.MapPost("/auth/login", async (Login input, ShopDb db, HttpContext ctx) =>
     {
         var user = await db.Accounts.SingleOrDefaultAsync(u =>
-            u.Email == (input.Email ?? "").Trim().ToLower()
+            u.Email == (input.Email ?? "").Trim().ToLowerInvariant()
+            && u.Role == "Customer"
+            && u.Enabled
         );
         if (
             user == null
@@ -184,6 +203,7 @@ api.MapPost("/auth/login", async (Login input, ShopDb db, HttpContext ctx) =>
         return Results.Ok(new { user.Role });
     })
     .RequireRateLimiting("login");
+api.MapPost("/auth/admin/login", AdminAccess.Login).RequireRateLimiting("admin-login");
 api.MapPost("/auth/logout", async (HttpContext ctx) =>
 {
     await ctx.SignOutAsync("session");
@@ -196,34 +216,29 @@ Catalog.Map(api, admin);
 Media.Map(api, admin);
 Checkout.Map(api, admin);
 SettingsRoutes.Map(admin);
-Settlement.Map(api, admin);
-using (var scope = app.Services.CreateScope())
+var migrate = args.FirstOrDefault() is "migrate" or "reset-admin";
+if (migrate || config.GetValue("MIGRATE_ON_STARTUP", true))
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ShopDb>();
     await db.Database.MigrateAsync();
-    await Seed.Run(db, config);
+    await Seed.Run(
+        db,
+        config,
+        scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>(),
+        args.FirstOrDefault() == "reset-admin"
+    );
+    if (config.GetValue<bool>("GRANT_RUNTIME_ACCESS"))
+        await RuntimeAccess.Grant(db);
 }
-app.Run();
+if (!migrate)
+    app.Run();
 
 public record Login(string Email, string Password);
 
 public sealed class ShopError(string message, int status = 400) : Exception(message)
 {
     public int Status { get; } = status;
-}
-
-public interface IPaymentAvailability
-{
-    bool Enabled { get; }
-}
-
-public sealed class PaymentAvailability(IConfiguration c) : IPaymentAvailability
-{
-    public bool Enabled =>
-        !string.IsNullOrWhiteSpace(c["SSLCOMMERZ_STORE_ID"])
-        && !string.IsNullOrWhiteSpace(c["SSLCOMMERZ_STORE_PASSWORD"])
-        && Uri.TryCreate(c["CALLBACK_BASE_URL"], UriKind.Absolute, out var u)
-        && u.Scheme == "https";
 }
 
 public partial class Program { }

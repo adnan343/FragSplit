@@ -1,5 +1,7 @@
 services:
-  web:
+  ingress:
+    environment:
+      TRUSTED_TUNNEL_PROXY: ${TRUSTED_TUNNEL_PROXY:-cloudflared}
     networks:
       default: {}
       tunnel:

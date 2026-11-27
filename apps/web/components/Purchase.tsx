@@ -1,7 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Product, money } from "@/lib/shop";
 import { useCart } from "./Cart";
 import { Button } from "./ui/button";
@@ -45,19 +45,17 @@ export function Purchase({ p }: { p: Product }) {
   const [size, select] = useState(
       p.variants.find((v) => v.enabled && v.sizeMl <= p.availableMl)?.sizeMl,
     ),
-    [qty, setQty] = useState(1);
+    [quantityText, setQuantityText] = useState("1");
+  const qty = Number(quantityText);
+  const quantityStatus = useId();
+  const validQuantity = Number.isInteger(qty) && qty >= 1 && qty <= 99;
   const v = p.variants.find((v) => v.sizeMl === size);
   const remaining =
     p.availableMl -
     cart.lines
       .filter((l) => l.perfumeId === p.id)
       .reduce((sum, l) => sum + l.quantity * l.sizeMl, 0);
-  const can =
-    !!v &&
-    qty > 0 &&
-    Number.isInteger(qty) &&
-    qty <= 99 &&
-    qty * v.sizeMl <= remaining;
+  const can = !!v && validQuantity && qty * v.sizeMl <= remaining;
   return (
     <section className="purchase">
       <fieldset>
@@ -83,8 +81,16 @@ export function Purchase({ p }: { p: Product }) {
             type="number"
             min={1}
             max={99}
-            value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
+            value={quantityText}
+            aria-invalid={!validQuantity}
+            aria-describedby={quantityStatus}
+            onChange={(e) => setQuantityText(e.target.value)}
+            onBlur={(e) => {
+              if (Number.isInteger(qty) && qty > 0) {
+                e.currentTarget.value = String(qty);
+                setQuantityText(String(qty));
+              }
+            }}
           />
         </label>
         <Button
@@ -101,13 +107,17 @@ export function Purchase({ p }: { p: Product }) {
               });
           }}
         >
-          Add to bag {v && qty > 0 ? " · " + money(v.price * qty) : ""}
+          Add to bag {v && validQuantity ? " · " + money(v.price * qty) : ""}
         </Button>
       </div>
-      <small role="status">
-        {can
-          ? "Supplied in a decant atomizer."
-          : "Insufficient available stock for this selection and your bag."}{" "}
+      <small>
+        <span id={quantityStatus} role="status">
+          {!validQuantity
+            ? "Enter a whole quantity between 1 and 99."
+            : can
+              ? "Supplied in a decant atomizer."
+              : "Insufficient available stock for this selection and your bag."}
+        </span>{" "}
         <Link href="/guide#sizes">Size guide</Link>
       </small>
     </section>

@@ -52,11 +52,12 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             e.preventDefault();
             const fd = new FormData(e.currentTarget);
             try {
-              await api("/auth/login", {
+              await api("/auth/admin/login", {
                 method: "POST",
                 body: JSON.stringify({
                   email: fd.get("email"),
                   password: fd.get("password"),
+                  code: fd.get("code"),
                 }),
               });
               await api("/admin/me");
@@ -79,6 +80,17 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               name="password"
               required
               autoComplete="current-password"
+            />
+          </label>
+          <label>
+            Authenticator code
+            <input
+              name="code"
+              required
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]{6}"
+              maxLength={6}
             />
           </label>
           <button className="primary">Sign in</button>

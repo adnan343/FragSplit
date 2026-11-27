@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -39,6 +39,20 @@ type Quote = {
     unitPrice: number;
   }[];
 };
+type Receipt = { reference: string; token: string | null };
+
+async function recoverAttempt(key: string) {
+  try {
+    return await api<Receipt>("/orders/recover", {
+      method: "POST",
+      body: JSON.stringify({ key }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 export function CheckoutForm({ settings }: { settings: Settings }) {
   const { session } = useCart();
   return <CheckoutDetails key={session.id ?? "guest"} settings={settings} />;
@@ -46,8 +60,8 @@ export function CheckoutForm({ settings }: { settings: Settings }) {
 function CheckoutDetails({ settings }: { settings: Settings }) {
   const c = useCart(),
     router = useRouter();
-  const [zone, setZone] = useState(settings.zones[0]?.id ?? 0),
-    [method, setMethod] = useState(settings.zones[0]?.cod ? "COD" : "Online"),
+  const zones = settings.zones.filter((zone) => zone.cod);
+  const [zone, setZone] = useState(zones[0]?.id ?? 0),
     [priced, price] = useState<{ quote: Quote; key: string } | null>(null),
     [error, fail] = useState(""),
     [revision, retry] = useState(0);
@@ -59,37 +73,43 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
         quantity,
       })),
       zoneId: zone,
-      method,
+      method: "COD",
     }),
-    [c.lines, zone, method],
+    [c.lines, zone],
   );
   const clearCart = c.clear;
   const attemptKey =
     c.session.id === null ? "fs.attempt" : "fs.attempt." + c.session.id;
+  const savedKey = useCallback((): string | undefined => {
+    const saved = sessionStorage.getItem(attemptKey);
+    return saved ? JSON.parse(saved).key : undefined;
+  }, [attemptKey]);
+  const complete = useCallback(
+    (receipt: Receipt, key: string) => {
+      if (savedKey() !== key) return;
+      if (receipt.token)
+        sessionStorage.setItem("fs.order." + receipt.reference, receipt.token);
+      sessionStorage.removeItem(attemptKey);
+      clearCart();
+      router.replace("/orders/" + receipt.reference);
+    },
+    [attemptKey, clearCart, router, savedKey],
+  );
   useEffect(() => {
-    const pending = sessionStorage.getItem(attemptKey);
-    if (!pending) return;
+    const key = savedKey();
+    if (!key) return;
     let live = true;
-    const key = JSON.parse(pending).key;
-    api<{ reference: string; token: string | null }>("/orders/recover", {
-      method: "POST",
-      body: JSON.stringify({ key }),
-    })
-      .then((r) => {
-        if (!live) return;
-        if (r.token) sessionStorage.setItem("fs.order." + r.reference, r.token);
-        sessionStorage.removeItem(attemptKey);
-        clearCart();
-        router.replace("/orders/" + r.reference);
+    recoverAttempt(key)
+      .then((receipt) => {
+        if (live && receipt) complete(receipt, key);
       })
       .catch((e) => {
-        if (live && !(e instanceof ApiError && e.status === 404))
-          fail(message(e));
+        if (live) fail(message(e));
       });
     return () => {
       live = false;
     };
-  }, [clearCart, router, attemptKey]);
+  }, [complete, savedKey]);
   const {
     register,
     setValue,
@@ -123,7 +143,7 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
   const quote = priced?.key === key ? priced.quote : null;
   useEffect(() => {
     let live = true;
-    if (basket.items.length)
+    if (basket.items.length && basket.zoneId)
       api<Quote>("/checkout/quote", {
         method: "POST",
         body: JSON.stringify(basket),
@@ -148,14 +168,20 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
         Your bag is empty. <Link href="/fragrances">Shop fragrances</Link>
       </p>
     );
+  if (!zones.length) return <p>Delivery is currently unavailable.</p>;
   return (
     <form
-      className="columns"
+      className="columns checkout-form"
       onSubmit={handleSubmit(async (values) => {
         if (!quote) return;
+        const pending = savedKey();
+        const requestKey = pending ?? crypto.randomUUID();
+        sessionStorage.setItem(attemptKey, JSON.stringify({ key: requestKey }));
         try {
-          if (method === "Online" && !values.postcode)
-            throw new Error("Online payment requires a postal code.");
+          if (pending) {
+            const receipt = await recoverAttempt(pending);
+            if (receipt) return complete(receipt, pending);
+          }
           const { accepted, ...customer } = values;
           const payload = {
             basket,
@@ -166,36 +192,26 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
               ? { accountId: c.session.id, cartVersion: c.version }
               : {}),
           };
-          const digest = Array.from(
-            new Uint8Array(
-              await crypto.subtle.digest(
-                "SHA-256",
-                new TextEncoder().encode(JSON.stringify(payload)),
-              ),
-            ),
-          ).join("-");
-          let attempt = JSON.parse(
-            sessionStorage.getItem(attemptKey) || "null",
-          );
-          if (attempt?.digest !== digest) {
-            attempt = { digest, key: crypto.randomUUID() };
-            sessionStorage.setItem(attemptKey, JSON.stringify(attempt));
-          }
-          const r = await api<{ reference: string; token: string | null }>(
-            "/orders",
-            {
+          try {
+            const receipt = await api<Receipt>("/orders", {
               method: "POST",
-              body: JSON.stringify({ ...payload, requestKey: attempt.key }),
-            },
-          );
-          if (r.token)
-            sessionStorage.setItem("fs.order." + r.reference, r.token);
-          sessionStorage.setItem("fs.last", r.reference);
-          c.clear();
-          sessionStorage.removeItem(attemptKey);
-          router.push("/orders/" + r.reference);
+              body: JSON.stringify({ ...payload, requestKey }),
+            });
+            complete(receipt, requestKey);
+          } catch (e) {
+            // The first request can commit after recovery checked for it.
+            if (pending && e instanceof ApiError && e.status === 409) {
+              const receipt = await recoverAttempt(requestKey);
+              if (receipt) return complete(receipt, requestKey);
+            }
+            throw e;
+          }
         } catch (e) {
-          fail(message(e));
+          fail(
+            e instanceof TypeError
+              ? "The connection dropped. Confirm again to check your previous submission."
+              : message(e),
+          );
         }
       })}
     >
@@ -229,10 +245,7 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
         ).map(([k, l, a]) => (
           <label key={k}>
             {l}
-            {["notes", "postcode"].includes(k) &&
-            !(method === "Online" && k !== "notes")
-              ? " (optional)"
-              : ""}
+            {["notes", "postcode"].includes(k) ? " (optional)" : ""}
             <input
               {...register(k)}
               required={k === "email"}
@@ -245,33 +258,15 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
         ))}
         <label>
           Delivery region
-          <select
-            value={zone}
-            onChange={(e) => {
-              const z = +e.target.value;
-              setZone(z);
-              if (!settings.zones.find((x) => x.id === z)?.cod)
-                setMethod("Online");
-            }}
-          >
-            {settings.zones.map((z) => (
+          <select value={zone} onChange={(e) => setZone(+e.target.value)}>
+            {zones.map((z) => (
               <option value={z.id} key={z.id}>
                 {z.name}
               </option>
             ))}
           </select>
         </label>
-        <label>
-          Payment method
-          <select value={method} onChange={(e) => setMethod(e.target.value)}>
-            {settings.zones.find((z) => z.id === zone)?.cod && (
-              <option value="COD">Cash on delivery</option>
-            )}
-            {settings.online && (
-              <option value="Online">Online via SSLCommerz</option>
-            )}
-          </select>
-        </label>
+        <p>Payment by cash on delivery.</p>
       </div>
       <section className="panel">
         <h2>Review your order</h2>
@@ -321,8 +316,17 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
             <button
               type="button"
               onClick={async () => {
-                await c.refresh();
-                retry((n) => n + 1);
+                try {
+                  const key = savedKey();
+                  if (key) {
+                    const receipt = await recoverAttempt(key);
+                    if (receipt) return complete(receipt, key);
+                  }
+                  await c.refresh();
+                  retry((n) => n + 1);
+                } catch (e) {
+                  fail(message(e));
+                }
               }}
             >
               Refresh quote

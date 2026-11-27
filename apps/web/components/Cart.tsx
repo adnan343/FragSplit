@@ -234,6 +234,46 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     </CartContext.Provider>
   );
 }
+function BagQuantity({ line }: { line: CartLine }) {
+  const cart = useCart();
+  const [draft, setDraft] = useState<string | null>(null);
+  const firstPointerFocus = useRef(false);
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      className="bag-quantity"
+      disabled={!cart.ready && draft === null}
+      value={draft ?? String(line.quantity)}
+      onPointerDown={(event) => {
+        firstPointerFocus.current =
+          document.activeElement !== event.currentTarget;
+      }}
+      onFocus={(event) => {
+        setDraft(event.currentTarget.value);
+        event.currentTarget.select();
+      }}
+      onClick={(event) => {
+        if (firstPointerFocus.current) event.currentTarget.select();
+        firstPointerFocus.current = false;
+      }}
+      onChange={(event) => {
+        const value = event.currentTarget.value;
+        if (/^\d*$/.test(value)) setDraft(value.replace(/^0+(?=\d)/, ""));
+      }}
+      onBlur={(event) => {
+        const quantity =
+          Math.min(99, Number(event.currentTarget.value)) || line.quantity;
+        setDraft(null);
+        if (quantity !== line.quantity)
+          cart.set(line.perfumeId, line.sizeMl, quantity);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+    />
+  );
+}
 export function CartList() {
   const c = useCart();
   return !c.lines.length ? (
@@ -250,18 +290,7 @@ export function CartList() {
               </p>
             </div>
             <label>
-              Quantity{" "}
-              <input
-                type="number"
-                min={1}
-                disabled={!c.ready}
-                max={99}
-                value={l.quantity}
-                onChange={(e) => {
-                  if (+e.target.value > 0)
-                    c.set(l.perfumeId, l.sizeMl, Math.floor(+e.target.value));
-                }}
-              />
+              Quantity <BagQuantity line={l} />
             </label>
             <button onClick={() => c.set(l.perfumeId, l.sizeMl, 0)}>
               Remove

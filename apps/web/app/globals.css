@@ -71,7 +71,9 @@ a {
   color: inherit;
   text-decoration: none;
 }
-a:hover {
+a:hover,
+.checkout-form a,
+.inline-link {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -408,7 +410,7 @@ button.selected {
 .card:hover {
   text-decoration: none;
 }
-.card:hover h3 {
+.card:hover .card-title {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 0.14em;
@@ -419,7 +421,7 @@ button.selected {
   flex-direction: column;
   flex: 1;
 }
-.card h3 {
+.card .card-title {
   margin: 0.3rem 0 0.35rem;
   font-size: clamp(1.65rem, 2.6vw, 2.8rem);
 }
@@ -476,7 +478,7 @@ button.selected {
 .card-compact .card-body {
   padding: 0;
 }
-.card-compact h3 {
+.card-compact .card-title {
   font-size: 1.9rem;
 }
 .card-compact .card-price {
@@ -543,7 +545,8 @@ input[type="checkbox"],
 input[type="radio"] {
   accent-color: var(--accent);
 }
-input[type="number"] {
+input[type="number"],
+input.bag-quantity {
   width: 6rem;
 }
 .filters {
@@ -909,7 +912,7 @@ td {
   .grid-three .card:first-child {
     grid-column: 1/-1;
   }
-  .card h3 {
+  .card .card-title {
     font-size: 1.65rem;
   }
   .card-meta {

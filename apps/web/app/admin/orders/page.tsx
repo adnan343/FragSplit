@@ -111,9 +111,7 @@ function Manage({
   };
   const options = (actions[o.fulfillment] || []).filter(
     (a) =>
-      a !== "Confirmed" ||
-      o.method === "COD" ||
-      (o.payment === "Paid" && !o.needsReview),
+      a !== "Confirmed" || (o.method === "COD" && o.stockState === "Reserved"),
   );
   if (
     o.fulfillment === "Delivered" &&
@@ -121,30 +119,12 @@ function Manage({
     o.payment === "Unpaid"
   )
     options.push("Collect");
-  if (o.payment === "Paid") options.push("Refund");
+  if (o.method === "COD" && o.payment === "Paid") options.push("Refund");
   return (
     <div className="columns">
       <OrderSummary o={o} />
       <section className="panel">
         <h2>Manage order</h2>
-        {o.method === "Online" && (
-          <button
-            onClick={async () => {
-              try {
-                await api("/admin/orders/" + reference + "/reconcile", {
-                  method: "POST",
-                });
-                reload();
-                refresh();
-                fail("");
-              } catch (e) {
-                fail(message(e));
-              }
-            }}
-          >
-            Check provider status
-          </button>
-        )}
         {o.verification && <p>Provider result · {o.verification}</p>}
         {options.length > 0 && (
           <form

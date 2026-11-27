@@ -24,8 +24,7 @@ function OrderDetails({
 }) {
   const [o, set] = useState<Order | null>(null),
     [token, access] = useState<string | null>(null),
-    [error, fail] = useState(""),
-    [busy, pending] = useState(false);
+    [error, fail] = useState("");
   // The private fragment and session storage are available only after hydration.
   useEffect(() => {
     const fragment = new URLSearchParams(location.hash.slice(1));
@@ -62,7 +61,12 @@ function OrderDetails({
       {error && (
         <p role="alert" className="error">
           {error}{" "}
-          <Link href={"/account?next=/orders/" + reference}>My account</Link>
+          <Link
+            className="inline-link"
+            href={"/orders?reference=" + encodeURIComponent(reference)}
+          >
+            Request a new receipt link
+          </Link>
         </p>
       )}
       {o && (
@@ -96,7 +100,9 @@ function OrderDetails({
                   </Link>
                 )}
                 <label>
-                  Private order link — save for future access
+                  {token.startsWith("r1.")
+                    ? "Temporary private receipt link"
+                    : "Private order link — save for future access"}
                   <input
                     readOnly
                     value={
@@ -130,34 +136,6 @@ function OrderDetails({
             </ol>
           </section>
           <button onClick={reload}>Refresh status</button>
-          {o.method === "Online" &&
-            o.payment === "Pending" &&
-            o.stockState === "Reserved" &&
-            !o.needsReview && (
-              <button
-                className="primary"
-                disabled={busy}
-                onClick={async () => {
-                  pending(true);
-                  try {
-                    const r = await api<{ url: string }>(
-                      "/payments/sslcommerz/initiate",
-                      {
-                        method: "POST",
-                        headers: { "X-Order-Token": token || "" },
-                        body: JSON.stringify({ reference }),
-                      },
-                    );
-                    location.assign(r.url);
-                  } catch (e) {
-                    fail(message(e));
-                    pending(false);
-                  }
-                }}
-              >
-                Continue to secure payment
-              </button>
-            )}
         </>
       )}
     </div>

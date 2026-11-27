@@ -87,7 +87,7 @@ export default async function Home() {
                 }
               >
                 {items.map((p) => (
-                  <Card key={p.id} p={p} compact={compact} />
+                  <Card key={p.id} p={p} compact={compact} headingLevel={3} />
                 ))}
               </div>
             </section>

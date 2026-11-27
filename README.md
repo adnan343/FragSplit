@@ -1,5 +1,5 @@
-# FragSplit
-A single-vendor fragrance decant store for Bangladesh. The storefront and admin share a Next.js App Router application. ASP.NET Core owns authorization, prices, payment verification and liquid stock. PostgreSQL persists the order, stock ledger and reporting history.
+# VialMuse
+A single-vendor fragrance decant store for Bangladesh. The storefront and admin share a Next.js App Router application. ASP.NET Core owns authorization, checkout and liquid stock. PostgreSQL stores orders, stock movements and reporting history.
 
 ## Run locally
 Install Docker Engine with Compose v2 or later and Python 3. Run these commands from the repository root.
@@ -9,9 +9,9 @@ python3 scripts/dev-env.py
 docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.mailpit.yml up --build -d
 ```
 
-Open [the storefront](http://localhost:3000), [administration](http://localhost:3000/admin), [API health](http://localhost:5080/health) or the [OpenAPI document](http://localhost:5080/openapi/v1.json). The first boot applies EF migrations. With `SEED_DEMO=true`, it loads six fictional fragrances and labeled artwork. The bootstrap script creates a fresh local password in the ignored, owner-readable `.env` file. Use its `ADMIN_EMAIL` and `ADMIN_PASSWORD` at the admin sign-in. Existing files and account passwords are preserved on restart.
+Open [the storefront](http://localhost:3000) or check [service health](http://localhost:3000/health). Visit `/admin` directly for administration. The first boot runs database migrations using the migration role. With `SEED_DEMO=true`, it loads six fictional fragrances and labeled artwork. The bootstrap script writes the local sign-in credentials to an owner-only `.env` file. Add `ADMIN_TOTP_SECRET` as a time-based setup key in an authenticator app, then sign in with `ADMIN_EMAIL`, `ADMIN_PASSWORD` and the current six-digit code.
 
-To supply your own configuration, copy `.env.example` to `.env`. Set a random database password and a separate admin password of at least 14 characters. The store supports guest COD immediately. Online checkout becomes available with configured merchant credentials and an HTTPS callback origin. The production checkout uses the merchant’s enabled hosted payment channels.
+Use distinct database and ingress credentials in each environment and an admin password of at least 14 characters. Checkout uses cash on delivery. Unconfirmed orders reserve stock for 24 hours by default, and each customer can hold two pending orders.
 
 ```sh
 docker compose --env-file .env -f infra/docker-compose.yml -f infra/docker-compose.mailpit.yml down
@@ -27,11 +27,11 @@ The local Compose command above includes Mailpit. Open the [local test inbox](ht
 
 Customers from before email verification can sign in as usual. Their first email password reset also asks for their current password or original saved recovery code to confirm ownership of their existing order history. Later resets require only the emailed link.
 
-For physical devices to share an account, both must reach the same store URL. The default Compose setup binds to the host’s loopback interface. To use the shared HTTPS test store, follow the [Cloudflare Tunnel setup and rebuild instructions](docs/deployment.md#test-through-an-existing-cloudflare-tunnel).
+For physical devices to share an account, both must reach the same store URL. The default Compose setup binds to the host’s loopback interface. Production uses the existing Cloudflare Tunnel at `store.adnanhossain.me`. [Deployment guide](docs/deployment.md)
 
 ## Order confirmation emails
 
-Confirm a pending cash-on-delivery order in **Admin → Orders** to send the customer an itemized order slip. Successful online payment verification sends the slip automatically when it confirms the order. Checkout requires an email for every order. Signed-in customers start with their account email and the delivery details saved from their last checkout.
+Confirm a pending cash-on-delivery order in **Admin → Orders** to send the customer an itemized order slip. Checkout requires an email for every order. Guests can use **Find an order** to request a private receipt link at the checkout email address. The link expires after 30 minutes. Signed-in customers start with their account email and the delivery details saved from their last checkout.
 
 The attached HTML slip opens in a browser and can be printed or saved as a PDF. It shows the payment status at confirmation, including the amount due on delivery. The store queues the email when confirmation commits and retries delivery after SMTP failures. Local testing uses the same Mailpit inbox as account verification.
 
@@ -53,12 +53,12 @@ set +a
 pnpm e2e
 ```
 
-For hot reload, point `ConnectionStrings__Shop` at a development PostgreSQL database, set `PUBLIC_ORIGIN`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` and `SEED_DEMO`, then run `dotnet run --project apps/api --urls http://127.0.0.1:5080`. In another terminal run `pnpm dev` from `apps/web`. Browser requests use the Next.js same-origin rewrite. Set `API_ORIGIN` before building or starting Next.js if the API is elsewhere.
+For hot reload, point `ConnectionStrings__Shop` at a development PostgreSQL database and set `PUBLIC_ORIGIN`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_TOTP_SECRET` and `SEED_DEMO`. Run `dotnet run --project apps/api --urls http://127.0.0.1:5080` and run `pnpm dev` in `apps/web`. The development server uses the Next.js same-origin rewrite. Set `API_ORIGIN` before starting Next.js if the API is elsewhere.
 
 ## Project guides
 - [Implementation plan](docs/implementation-plan.md) and [acceptance results](docs/acceptance.md)
 - [Architecture, inventory and reporting definitions](docs/architecture.md)
 - [API and authentication](docs/api.md)
 - [Deployment and recovery](docs/deployment.md)
-- [SSLCommerz sandbox setup and acceptance procedure](docs/payments.md)
+- [COD and payment scope](docs/payments.md)
 - [Seed artwork and provenance](docs/assets.md)

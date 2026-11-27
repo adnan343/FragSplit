@@ -93,7 +93,6 @@ export function CustomerAccount() {
     return (
       <div className="panel">
         <p>Signed in as a store administrator.</p>
-        <Link href="/admin">Open administration</Link>
         <SignOut />
       </div>
     );

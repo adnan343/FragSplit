@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 async function emailLink(
   request: APIRequestContext,
   email: string,
@@ -58,7 +58,7 @@ test("a customer continues a guest bag and tracks the resulting order on a secon
   await page.getByText("Profile and delivery address", { exact: true }).click();
   for (const [label, value] of [
     ["Full name", "Account Customer"],
-    ["Mobile number", "01700000000"],
+    ["Mobile number", "018" + String(randomInt(100_000_000)).padStart(8, "0")],
     ["Street address", "21 Library Road"],
     ["City or district", "Dhaka"],
     ["Area", "Dhanmondi"],
@@ -89,9 +89,9 @@ test("a customer continues a guest bag and tracks the resulting order on a secon
       .getByLabel("I accept the delivery and return policies.")
       .check();
     await phone.getByRole("button", { name: "Confirm order" }).click();
-    const heading = phone.getByRole("heading", { name: /Order FS-/ });
+    const heading = phone.getByRole("heading", { name: /Order VM-/ });
     await expect(heading).toBeVisible();
-    const reference = (await heading.innerText()).match(/FS-[A-F0-9]+/)![0];
+    const reference = (await heading.innerText()).match(/VM-[A-F0-9]+/)![0];
     await expect(
       phone.getByRole("link", { name: "View all my orders" }),
     ).toBeVisible();

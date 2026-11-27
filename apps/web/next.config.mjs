@@ -3,6 +3,7 @@ const config = {
   experimental: { useTypeScriptCli: false },
   poweredByHeader: false,
   async rewrites() {
+    if (process.env.API_BEHIND_INGRESS === "true") return [];
     return [
       {
         source: "/api/:path*",

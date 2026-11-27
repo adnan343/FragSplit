@@ -6,9 +6,22 @@ export function OrderSummary({ o }: { o: Order }) {
       <h2>Order {o.reference}</h2>
       <p>
         {o.fulfillment} ·{" "}
-        {o.method === "COD" ? "Cash on delivery" : "Online via SSLCommerz"} ·{" "}
+        {o.method === "COD" ? "Cash on delivery" : "Online payment"} ·{" "}
         {o.payment}
       </p>
+      {o.method === "COD" && o.fulfillment === "Pending" && o.expiresAt && (
+        <p>
+          Your stock hold expires{" "}
+          <time dateTime={o.expiresAt}>
+            {new Date(o.expiresAt).toLocaleString("en-BD", {
+              timeZone: "Asia/Dhaka",
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}
+          </time>{" "}
+          (Dhaka time) unless the store confirms your order.
+        </p>
+      )}
       {o.needsReview && (
         <p>
           Payment or fulfillment is under review. Contact the store with your

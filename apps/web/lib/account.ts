@@ -17,7 +17,8 @@ export const profileFields = [
 
 export function accountDestination() {
   const target = new URLSearchParams(location.search).get("next");
-  return target === "/checkout" || target?.match(/^\/orders\/FS-[A-F0-9]{20}$/)
+  return target === "/checkout" ||
+    target?.match(/^\/orders\/(?:VM|FS)-[A-F0-9]{20}$/)
     ? target
     : "/account";
 }

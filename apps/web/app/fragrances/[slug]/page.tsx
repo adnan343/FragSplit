@@ -87,7 +87,7 @@ export default async function Detail({ params }: Props) {
         {related.items
           .filter((x) => x.id !== p.id)
           .map((x) => (
-            <Card p={x} key={x.id} />
+            <Card p={x} key={x.id} headingLevel={3} />
           ))}
       </div>
       <script

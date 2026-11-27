@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -49,11 +50,13 @@ public class Checkout(
     ShopDb db,
     IDataProtectionProvider dp,
     IConfiguration config,
-    TimeProvider clock,
-    IPaymentAvailability payments
+    TimeProvider clock
 )
 {
     readonly IDataProtector access = dp.CreateProtector("guest-order-status-v1");
+
+    public static bool IsReference(string? reference) =>
+        reference != null && Regex.IsMatch(reference, @"\A(?:VM|FS)-[A-F0-9]{20}\z");
 
     public static string Hash<T>(T value) =>
         Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
@@ -76,11 +79,7 @@ public class Checkout(
             .Zones.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Id == b.ZoneId && x.Active)
             ?? throw new ShopError("Choose an available delivery region.");
-        if (
-            b.Method == "COD" && !zone.Cod
-            || b.Method == "Online" && !payments.Enabled
-            || b.Method is not ("COD" or "Online")
-        )
+        if (b.Method != "COD" || !zone.Cod)
             throw new ShopError("Payment method is unavailable for this region.");
         var lines = new List<OrderLine>();
         foreach (var group in b.Items.GroupBy(l => l.PerfumeId).OrderBy(g => g.Key))
@@ -112,8 +111,6 @@ public class Checkout(
         }
         var subtotal = lines.Sum(l => l.UnitPrice * l.Quantity);
         var total = subtotal + zone.Charge;
-        if (b.Method == "Online" && total is < 10 or > 500000)
-            throw new ShopError("Online checkout supports totals between ৳10 and ৳500,000.");
         return new(
             subtotal,
             zone.Charge,
@@ -132,6 +129,40 @@ public class Checkout(
         );
     }
 
+    async Task LimitCodHolds(int? accountId, string phone, string email, DateTime now)
+    {
+        // Serialize overlapping contact identities before counting their active holds.
+        var identities = accountId.HasValue
+            ? new[] { "phone:" + phone, "email:" + email, "account:" + accountId.Value }
+            : new[] { "phone:" + phone, "email:" + email };
+        var ids = identities
+            .Select(value =>
+                BinaryPrimitives.ReadInt64BigEndian(SHA256.HashData(Encoding.UTF8.GetBytes(value)))
+            )
+            .Distinct()
+            .Order();
+        foreach (var id in ids)
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({(int)(id >> 32)}, {unchecked((int)id)})"
+            );
+        var held = await db.Orders.CountAsync(o =>
+            o.Method == "COD"
+            && o.Fulfillment == "Pending"
+            && o.StockState == "Reserved"
+            && o.ExpiresAt > now
+            && (
+                o.Phone.EndsWith(phone)
+                || o.Email.ToLower() == email
+                || (accountId != null && o.AccountId == accountId)
+            )
+        );
+        if (held >= 2)
+            throw new ShopError(
+                "You already have two orders waiting for confirmation. Wait for the store to confirm them or for a hold to expire.",
+                409
+            );
+    }
+
     public async Task<object> Submit(Submission s, int? accountId = null)
     {
         if (s.RequestKey == Guid.Empty || !s.Accepted || s.Customer == null || s.Basket == null)
@@ -140,6 +171,7 @@ public class Checkout(
         var phone = Regex.Replace(Catalog.Field(c.Phone, 30, true), "[ ()-]", "");
         if (!Regex.IsMatch(phone, @"^(?:\+?88)?01[3-9][0-9]{8}$"))
             throw new ShopError("Enter a Bangladesh mobile number.");
+        phone = phone[^11..];
         await using var tx = await db.Database.BeginTransactionAsync();
         // Serialize concurrent submissions sharing the same key even before an order row exists.
         var key = Hash(s.RequestKey);
@@ -166,12 +198,16 @@ public class Checkout(
                 throw new ShopError("This checkout key belongs to a different submission.", 409);
             return Receipt(prior);
         }
-        var email = Catalog.Field(c.Email, s.Basket.Method == "Online" ? 50 : 254, true);
+        var email = Catalog.Field(c.Email, 254, true);
         if (
             !System.Net.Mail.MailAddress.TryCreate(email, out var recipient)
             || recipient.Address != email
         )
             throw new ShopError("Enter a valid email address.");
+        if (s.Basket.Method != "COD")
+            throw new ShopError("Cash on delivery is the available payment method.");
+        var now = clock.GetUtcNow().UtcDateTime;
+        await LimitCodHolds(accountId, phone, email.ToLowerInvariant(), now);
         Account? account = null;
         if (accountId.HasValue)
         {
@@ -201,11 +237,10 @@ public class Checkout(
                 "Prices or delivery charges changed. Review your updated quote.",
                 409
             );
-        var online = s.Basket.Method == "Online";
         var order = new Order
         {
             AccountId = accountId,
-            Reference = "FS-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(10)),
+            Reference = "VM-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(10)),
             RequestKey = key,
             Fingerprint = fingerprint,
             Name = Catalog.Field(c.Name, 50, true),
@@ -214,7 +249,7 @@ public class Checkout(
             Address = Catalog.Field(c.Address, 50, true),
             City = Catalog.Field(c.City, 50, true),
             Area = Catalog.Field(c.Area, 50, true),
-            Postcode = Catalog.Field(c.Postcode, 12, online),
+            Postcode = Catalog.Field(c.Postcode, 12),
             Notes = Catalog.Field(c.Notes, 600),
             Region = quote.Region,
             Method = s.Basket.Method,
@@ -222,14 +257,10 @@ public class Checkout(
             Shipping = quote.Shipping,
             Total = quote.Total,
             Lines = quote.Lines,
-            Payment = online ? "Pending" : "Unpaid",
-            ExpiresAt = online
-                ? clock
-                    .GetUtcNow()
-                    .UtcDateTime.AddMinutes(
-                        Math.Clamp(config.GetValue("RESERVATION_MINUTES", 15), 1, 120)
-                    )
-                : null,
+            CreatedAt = now,
+            ExpiresAt = now.AddMinutes(
+                Math.Clamp(config.GetValue("COD_HOLD_MINUTES", 1440), 1, 4320)
+            ),
         };
         order.History.Add(new History { Event = "Order submitted", Actor = "customer" });
         if (account != null)
@@ -275,10 +306,17 @@ public class Checkout(
     {
         try
         {
-            if (!string.IsNullOrEmpty(token) && access.Unprotect(token) == reference)
+            if (
+                token is { Length: > 0 and <= 4096 }
+                && (
+                    token.StartsWith(ReceiptRecovery.Prefix, StringComparison.Ordinal)
+                        ? ReceiptRecovery.Unprotect(dp, token)
+                        : access.Unprotect(token)
+                ) == reference
+            )
                 return;
         }
-        catch (CryptographicException) { }
+        catch (Exception e) when (e is CryptographicException or FormatException) { }
         throw new ShopError("Order access link is invalid.", 404);
     }
 
@@ -377,7 +415,7 @@ public class Checkout(
             o.Payment = "Paid";
             o.PaidAt = clock.GetUtcNow().UtcDateTime;
         }
-        else if (action == "Refund" && o.Payment == "Paid")
+        else if (action == "Refund" && o is { Method: "COD", Payment: "Paid" })
         {
             if (o.Fulfillment is "Pending" or "Confirmed" or "Processing")
             {
@@ -403,8 +441,8 @@ public class Checkout(
             bool valid = (o.Fulfillment, action) switch
             {
                 ("Pending", "Confirmed") => o.Method == "COD"
-                    || o.Payment == "Paid" && !o.NeedsReview,
-
+                    && o.StockState == "Reserved"
+                    && o.ExpiresAt > clock.GetUtcNow().UtcDateTime,
 
                 ("Confirmed", "Processing")
                 or
@@ -430,7 +468,7 @@ public class Checkout(
             }
             o.Fulfillment = action;
             if (action == "Confirmed")
-                await ConfirmationMail.Queue(db, o);
+                await ConfirmationMail.Queue(db, o, config);
             if (action == "Shipped")
                 o.Tracking = Catalog.Field(change.Tracking, 120);
         }
@@ -488,15 +526,21 @@ public class Checkout(
     public static void Map(RouteGroupBuilder api, RouteGroupBuilder admin)
     {
         api.MapPost("/checkout/quote", (Basket basket, Checkout service) => service.Price(basket))
-            .RequireRateLimiting("purchase");
+            .RequireRateLimiting("quote");
         api.MapPost("/orders/recover", (Recovery input, Checkout service, HttpContext ctx) =>
                 service.Recover(input.Key, CustomerAccounts.CustomerId(ctx.User))
             )
-            .RequireRateLimiting("purchase");
+            .RequireRateLimiting("checkout");
         api.MapPost("/orders", (Submission input, Checkout service, HttpContext ctx) =>
                 service.Submit(input, CustomerAccounts.CustomerId(ctx.User))
             )
-            .RequireRateLimiting("purchase");
+            .RequireRateLimiting("checkout");
+        api.MapPost(
+                "/orders/receipt-link",
+                (ReceiptLink input, ReceiptRecovery recovery, CancellationToken ct) =>
+                    recovery.Request(input, ct)
+            )
+            .RequireRateLimiting("receipt-link");
         api.MapGet(
                 "/orders/{reference}/status",
                 async (string reference, HttpRequest req, Checkout service, ShopDb db) =>
@@ -512,7 +556,7 @@ public class Checkout(
                     );
                 }
             )
-            .RequireRateLimiting("purchase");
+            .RequireRateLimiting("order-status");
         admin.MapGet(
             "/orders",
             async (

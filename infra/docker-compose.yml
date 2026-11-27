@@ -1,6 +1,7 @@
 name: fragsplit
 services:
   db:
+    restart: unless-stopped
     image: postgres:17
     environment:
       POSTGRES_DB: fragsplit
@@ -12,21 +13,46 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
-  api:
-    build: ../apps/api
+  db-roles:
+    image: postgres:17
     depends_on:
       db: {condition: service_healthy}
+    entrypoint: ["psql", "-X", "--single-transaction", "--set=ON_ERROR_STOP=1", "--file=/roles.sql"]
     environment:
-      ConnectionStrings__Shop: "Host=db;Database=fragsplit;Username=fragsplit;Password=${POSTGRES_PASSWORD}"
+      PGHOST: db
+      PGDATABASE: fragsplit
+      PGUSER: fragsplit
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      SHOP_MIGRATION_PASSWORD: ${SHOP_MIGRATION_PASSWORD:?set SHOP_MIGRATION_PASSWORD}
+      SHOP_RUNTIME_PASSWORD: ${SHOP_RUNTIME_PASSWORD:?set SHOP_RUNTIME_PASSWORD}
+    volumes: [./db-roles.sql:/roles.sql:ro]
+  migrate:
+    image: ${COMPOSE_PROJECT_NAME}-api
+    pull_policy: never
+    command: ["migrate"]
+    depends_on:
+      db-roles: {condition: service_completed_successfully}
+    environment:
+      ConnectionStrings__Shop: "Host=db;Database=fragsplit;Username=vialmuse_migrator;Password=${SHOP_MIGRATION_PASSWORD}"
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_TOTP_SECRET: ${ADMIN_TOTP_SECRET:-}
       SEED_DEMO: ${SEED_DEMO:-false}
+      GRANT_RUNTIME_ACCESS: "true"
+      KEY_DIRECTORY: /app/keys
+    volumes: [keys:/app/keys]
+  api:
+    restart: unless-stopped
+    image: ${COMPOSE_PROJECT_NAME}-api
+    build: ../apps/api
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    environment:
+      ConnectionStrings__Shop: "Host=db;Database=fragsplit;Username=vialmuse_api;Password=${SHOP_RUNTIME_PASSWORD}"
+      MIGRATE_ON_STARTUP: "false"
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
-      SSLCOMMERZ_STORE_ID: ${SSLCOMMERZ_STORE_ID:-}
-      SSLCOMMERZ_STORE_PASSWORD: ${SSLCOMMERZ_STORE_PASSWORD:-}
-      SSLCOMMERZ_MODE: ${SSLCOMMERZ_MODE:-sandbox}
-      CALLBACK_BASE_URL: ${CALLBACK_BASE_URL:-}
-      RESERVATION_MINUTES: ${RESERVATION_MINUTES:-15}
+      INGRESS_SECRET: ${INGRESS_SECRET:?set INGRESS_SECRET}
+      COD_HOLD_MINUTES: ${COD_HOLD_MINUTES:-1440}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       AWS_REGION: ${AWS_REGION:-us-east-1}
@@ -40,13 +66,26 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       KEY_DIRECTORY: /app/keys
     volumes: [uploads:/app/uploads, keys:/app/keys]
-    ports: ["127.0.0.1:5080:8080"]
   web:
+    restart: unless-stopped
     build: ../apps/web
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost:3000}
-    ports: ["127.0.0.1:3000:3000"]
     depends_on: [api]
+  ingress:
+    restart: unless-stopped
+    image: nginx:1.30.7-alpine
+    environment:
+      INGRESS_SECRET: ${INGRESS_SECRET:?set INGRESS_SECRET}
+      TRUSTED_TUNNEL_PROXY: ${TRUSTED_TUNNEL_PROXY:-unix:}
+    volumes: [./ingress.conf.template:/etc/nginx/templates/default.conf.template:ro]
+    ports: ["127.0.0.1:${STORE_PORT:-3000}:3000"]
+    depends_on: [web]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 volumes:
   pgdata:
   uploads:

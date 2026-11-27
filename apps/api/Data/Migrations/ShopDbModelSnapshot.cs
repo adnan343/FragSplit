@@ -30,6 +30,12 @@ namespace Shop.Api.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AdminTotpKey")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("AdminTotpStep")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Area")
                         .IsRequired()
                         .HasColumnType("text");
@@ -48,6 +54,9 @@ namespace Shop.Api.Data.Migrations
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Hash")
                         .IsRequired()
@@ -314,6 +323,9 @@ namespace Shop.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("ReceiptLinkRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Reference")
                         .IsRequired()
                         .HasColumnType("text");
@@ -374,6 +386,8 @@ namespace Shop.Api.Data.Migrations
                     b.HasIndex("AccountId", "Id");
 
                     b.HasIndex("StockState", "ExpiresAt");
+
+                    b.HasIndex("Method", "Fulfillment", "StockState", "ExpiresAt");
 
                     b.ToTable("Orders");
                 });

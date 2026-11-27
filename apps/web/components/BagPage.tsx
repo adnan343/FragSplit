@@ -12,7 +12,7 @@ export function BagPage({ rates }: { rates: number[] }) {
   };
   return (
     <>
-      {cart.ready && <CartList />}
+      {(cart.ready || cart.lines.length > 0) && <CartList />}
       {cart.lines.length > 0 && (
         <>
           {rates.length > 0 && (
