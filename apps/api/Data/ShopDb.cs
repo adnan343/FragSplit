@@ -212,6 +212,7 @@ public class Zone
     public string Name { get; set; } = "";
     public decimal Charge { get; set; }
     public bool Cod { get; set; }
+    public bool DhakaCity { get; set; }
     public bool Active { get; set; } = true;
 }
 

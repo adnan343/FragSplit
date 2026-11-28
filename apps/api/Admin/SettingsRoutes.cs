@@ -8,7 +8,16 @@ public record StoreInput(
     string? Contact,
     string ShippingPolicy,
     string ReturnPolicy,
-    Zone[] Zones
+    ZoneInput[] Zones
+);
+
+public record ZoneInput(
+    int Id,
+    string Name,
+    decimal Charge,
+    bool Cod,
+    bool Active,
+    bool? DhakaCity
 );
 
 public static class SettingsRoutes
@@ -67,6 +76,7 @@ public static class SettingsRoutes
                 z.Charge = entry.Charge;
                 z.Active = entry.Active;
                 z.Cod = entry.Cod;
+                z.DhakaCity = entry.DhakaCity ?? z.DhakaCity;
                 if (entry.Id == 0)
                     db.Add(z);
             }

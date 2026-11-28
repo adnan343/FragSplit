@@ -24,6 +24,12 @@ public sealed class ReceiptRecovery(
     public static string Unprotect(IDataProtectionProvider provider, string token) =>
         Protector(provider).Unprotect(token[Prefix.Length..]);
 
+    public static string Protect(
+        IDataProtectionProvider provider,
+        string reference,
+        DateTimeOffset expires
+    ) => Prefix + Protector(provider).Protect(reference, expires);
+
     public async Task<IResult> Request(ReceiptLink input, CancellationToken ct)
     {
         var reference = input.Reference?.Trim().ToUpperInvariant();
@@ -63,9 +69,11 @@ public sealed class ReceiptRecovery(
             .ExecuteUpdateAsync(s => s.SetProperty(o => o.ReceiptLinkRequestedAt, now), ct);
         if (next == 1)
         {
-            var token =
-                Prefix
-                + Protector(protection).Protect(reference!, TimeSpan.FromMinutes(ValidMinutes));
+            var token = Protect(
+                protection,
+                reference!,
+                DateTimeOffset.UtcNow.AddMinutes(ValidMinutes)
+            );
             try
             {
                 await mail.Send(

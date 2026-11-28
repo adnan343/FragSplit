@@ -90,7 +90,9 @@ test("guest discovers a fragrance and completes a multi-size COD order", async (
   await page.getByRole("button", { name: "Confirm order" }).click();
   await expect(page.getByRole("heading", { name: /Order VM-/ })).toBeVisible();
   await expect(page.getByText(/Cash on delivery · Unpaid/)).toBeVisible();
-  await expect(page.getByLabel(/Private order link/)).toHaveValue(/#token=/);
+  await expect(page.getByLabel("Temporary private receipt link")).toHaveValue(
+    /#token=r1\./,
+  );
   const reference = (
     await page.getByRole("heading", { name: /Order VM-/ }).innerText()
   ).match(/VM-[A-F0-9]+/)![0];

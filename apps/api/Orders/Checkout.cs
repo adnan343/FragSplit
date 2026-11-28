@@ -64,7 +64,7 @@ public class Checkout(
     public static int RequiredMl(IEnumerable<CartItem> items) =>
         items.Sum(l => checked(l.Quantity * l.SizeMl));
 
-    public async Task<Quote> Price(Basket b, bool lockStock = false)
+    public async Task<Quote> Price(Basket b, bool lockStock = false, string? city = null)
     {
         if (
             b?.Items == null
@@ -81,6 +81,20 @@ public class Checkout(
             ?? throw new ShopError("Choose an available delivery region.");
         if (b.Method != "COD" || !zone.Cod)
             throw new ShopError("Payment method is unavailable for this region.");
+        if (city != null)
+        {
+            var dhakaCity =
+                Regex.Replace(city.ToLowerInvariant(), @"\s+", " ").Trim()
+                is "dhaka"
+                    or "dhaka city"
+                    or "ঢাকা"
+                    or "ঢাকা শহর";
+            if (zone.DhakaCity != dhakaCity)
+                throw new ShopError(
+                    "The delivery region does not match the city or district. Choose the matching region and review the new total.",
+                    409
+                );
+        }
         var lines = new List<OrderLine>();
         foreach (var group in b.Items.GroupBy(l => l.PerfumeId).OrderBy(g => g.Key))
         {
@@ -231,7 +245,8 @@ public class Checkout(
                     409
                 );
         }
-        var quote = await Price(s.Basket, true);
+        var city = Catalog.Field(c.City, 50, true);
+        var quote = await Price(s.Basket, true, city);
         if (quote.Signature != s.Quote)
             throw new ShopError(
                 "Prices or delivery charges changed. Review your updated quote.",
@@ -247,7 +262,7 @@ public class Checkout(
             Phone = phone,
             Email = email,
             Address = Catalog.Field(c.Address, 50, true),
-            City = Catalog.Field(c.City, 50, true),
+            City = city,
             Area = Catalog.Field(c.Area, 50, true),
             Postcode = Catalog.Field(c.Postcode, 12),
             Notes = Catalog.Field(c.Notes, 600),
@@ -298,7 +313,13 @@ public class Checkout(
         new
         {
             o.Reference,
-            token = o.AccountId == null ? access.Protect(o.Reference) : null,
+            token = o.AccountId == null
+                ? ReceiptRecovery.Protect(
+                    dp,
+                    o.Reference,
+                    new DateTimeOffset(o.CreatedAt).AddMinutes(ReceiptRecovery.ValidMinutes)
+                )
+                : null,
             o.Method,
         };
 
@@ -443,6 +464,7 @@ public class Checkout(
                 ("Pending", "Confirmed") => o.Method == "COD"
                     && o.StockState == "Reserved"
                     && o.ExpiresAt > clock.GetUtcNow().UtcDateTime,
+
 
                 ("Confirmed", "Processing")
                 or

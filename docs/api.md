@@ -9,7 +9,7 @@ The API serves the machine-readable contract at `/openapi/v1.json` on its intern
 | GET /perfumes/{slug} | Active listing, variants and ordered gallery |
 | POST /checkout/quote | Accepts items with perfumeId, sizeMl, quantity, plus zoneId and method COD. Returns prices, delivery, total and quote signature. |
 | POST /orders | Accepts basket, customer, accepted, quote signature and UUID requestKey. For account checkout also send the session accountId and current cartVersion. Returns the reference and a protected token for guest orders. Keep the original key until the attempt resolves. A request with a different payload and a committed key receives 409. |
-| POST /orders/recover | Recover the receipt for an interrupted submission using its original private UUID key. |
+| POST /orders/recover | Recover the receipt for an interrupted submission using its original private UUID key. Checkout-issued guest access expires 30 minutes after order creation, including on retry. |
 | POST /orders/receipt-link | Accepts a guest order reference and checkout email. Returns 204 for well-formed requests and emails a 30-minute private link for a match. |
 | GET /orders/{reference}/status | Customer session for an owned order or X-Order-Token from a guest receipt. |
 | POST /auth/login, /auth/logout | Same-origin session actions. Customer login accepts email and password. |

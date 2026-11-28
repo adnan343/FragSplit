@@ -266,6 +266,10 @@ function CheckoutDetails({ settings }: { settings: Settings }) {
             ))}
           </select>
         </label>
+        <p className="muted">
+          Enter Dhaka city for delivery within the city. For delivery elsewhere,
+          enter the destination city or district and choose the matching region.
+        </p>
         <p>Payment by cash on delivery.</p>
       </div>
       <section className="panel">

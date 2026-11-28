@@ -102,6 +102,16 @@ function SettingsForm({
             <span>
               <input
                 type="checkbox"
+                checked={z.dhakaCity}
+                onChange={(e) => patch(i, { dhakaCity: e.target.checked })}
+              />
+              Serves Dhaka city
+            </span>
+          </label>
+          <label>
+            <span>
+              <input
+                type="checkbox"
                 checked={z.active}
                 onChange={(e) => patch(i, { active: e.target.checked })}
               />
@@ -115,7 +125,14 @@ function SettingsForm({
         onClick={() =>
           set([
             ...zones,
-            { id: 0, name: "", charge: 0, cod: false, active: true },
+            {
+              id: 0,
+              name: "",
+              charge: 0,
+              cod: false,
+              dhakaCity: false,
+              active: true,
+            },
           ])
         }
       >

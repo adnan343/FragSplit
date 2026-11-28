@@ -53,6 +53,15 @@ builder.Services.AddAuthorization(o =>
     o.AddPolicy("customer", p => p.RequireRole("Customer"));
 });
 var ingressSecret = Encoding.UTF8.GetBytes(config["INGRESS_SECRET"] ?? "");
+var catalogSecret = Encoding.UTF8.GetBytes(config["CATALOG_ORIGIN_SECRET"] ?? "");
+bool IsInternalCatalog(HttpContext context) =>
+    catalogSecret.Length >= 32
+    && context.Request.Headers.TryGetValue("X-VialMuse-Catalog-Origin", out var credential)
+    && credential.Count == 1
+    && CryptographicOperations.FixedTimeEquals(
+        catalogSecret,
+        Encoding.UTF8.GetBytes(credential.ToString())
+    );
 string ClientAddress(HttpContext context)
 {
     var address = context.Connection.RemoteIpAddress;
@@ -92,15 +101,17 @@ builder.Services.AddRateLimiter(o =>
         }
     )
         o.AddPolicy(name, ctx =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                ClientAddress(ctx),
+        {
+            var internalCatalog = name == "browse" && IsInternalCatalog(ctx);
+            return RateLimitPartition.GetFixedWindowLimiter(
+                internalCatalog ? "internal-catalog" : ClientAddress(ctx),
                 _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = max,
+                    PermitLimit = internalCatalog ? 1800 : max,
                     Window = TimeSpan.FromMinutes(1),
                 }
-            )
-        );
+            );
+        });
 });
 builder.WebHost.ConfigureKestrel(o =>
 {

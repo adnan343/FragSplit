@@ -74,6 +74,54 @@ public class OrderTests(ShopFixture f)
     }
 
     [Fact]
+    public async Task CodDeliveryRegionMustMatchTheAddress()
+    {
+        using var client = f.CreateClient();
+        var id = await Product(f, 20);
+        var submission = await Prepare(client, id);
+        var customer = submission.Customer with { City = "Chattogram" };
+        var rejected = await client.PostAsJsonAsync(
+            "/api/v1/orders",
+            submission with
+            {
+                Customer = customer,
+            }
+        );
+        Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+        Assert.Equal(
+            0,
+            await f.Db(db =>
+                db.Perfumes.Where(p => p.Id == id).Select(p => p.ReservedMl).SingleAsync()
+            )
+        );
+
+        var zones = await f.Db(db =>
+            db.Zones.Where(z => z.Active && z.Cod && !z.DhakaCity).Select(z => z.Id).ToListAsync()
+        );
+        var basket = submission.Basket with { ZoneId = Assert.Single(zones) };
+        var quote = await client.PostAsJsonAsync("/api/v1/checkout/quote", basket);
+        quote.EnsureSuccessStatusCode();
+        var priced = await quote.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(130m, priced.GetProperty("shipping").GetDecimal());
+        var accepted = await client.PostAsJsonAsync(
+            "/api/v1/orders",
+            submission with
+            {
+                Customer = customer,
+                Basket = basket,
+                Quote = priced.GetProperty("signature").GetString()!,
+            }
+        );
+        accepted.EnsureSuccessStatusCode();
+        Assert.StartsWith(
+            ReceiptRecovery.Prefix,
+            (await accepted.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("token")
+                .GetString()
+        );
+    }
+
+    [Fact]
     public async Task ConcurrentCodRequestsShareTheContactCapAndExpiredHoldsReleaseStock()
     {
         int id = await Product(f, 100);

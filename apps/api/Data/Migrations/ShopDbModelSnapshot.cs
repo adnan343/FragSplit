@@ -648,6 +648,9 @@ namespace Shop.Api.Data.Migrations
                     b.Property<bool>("Cod")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("DhakaCity")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text");

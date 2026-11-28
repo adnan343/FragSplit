@@ -32,6 +32,7 @@ export type Zone = {
   name: string;
   charge: number;
   cod: boolean;
+  dhakaCity: boolean;
   active: boolean;
 };
 export type Store = {
@@ -59,10 +60,10 @@ export class ApiError extends Error {
   }
 }
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const origin =
-    typeof window === "undefined"
-      ? process.env.API_ORIGIN || "http://127.0.0.1:5080"
-      : "";
+  const server = typeof window === "undefined";
+  const origin = server
+    ? process.env.API_ORIGIN || "http://127.0.0.1:5080"
+    : "";
   const res = await fetch(origin + "/api/v1" + path, {
     cache: "no-store",
     ...init,
@@ -72,6 +73,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
         : {}),
       "X-Shop-Request": "1",
       ...init?.headers,
+      ...(server &&
+      (path === "/perfumes" || path.startsWith("/perfumes?")) &&
+      process.env.CATALOG_ORIGIN_SECRET
+        ? { "X-VialMuse-Catalog-Origin": process.env.CATALOG_ORIGIN_SECRET }
+        : {}),
     },
   });
   if (!res.ok) {

@@ -25,6 +25,7 @@ public static class Seed
                 new Zone
                 {
                     Name = "Dhaka city",
+                    DhakaCity = true,
                     Charge = 70,
                     Cod = true,
                 },

@@ -26,9 +26,10 @@ export async function generateMetadata({ params }: Props) {
 }
 export default async function Detail({ params }: Props) {
   const p = await get((await params).slug);
-  const related = await api<Paged>(
+  const { items } = await api<Paged>(
     "/perfumes?category=" + encodeURIComponent(p.category) + "&pageSize=4",
   );
+  const related = items.filter((item) => item.id !== p.id);
   const price = lowest(p);
   const schema = {
     "@context": "https://schema.org",
@@ -82,14 +83,16 @@ export default async function Detail({ params }: Props) {
           </dl>
         </div>
       </div>
-      <h2>From the same collection</h2>
-      <div className="grid">
-        {related.items
-          .filter((x) => x.id !== p.id)
-          .map((x) => (
-            <Card p={x} key={x.id} headingLevel={3} />
-          ))}
-      </div>
+      {related.length > 0 && (
+        <section>
+          <h2>From the same collection</h2>
+          <div className="grid">
+            {related.map((item) => (
+              <Card p={item} key={item.id} headingLevel={3} />
+            ))}
+          </div>
+        </section>
+      )}
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{

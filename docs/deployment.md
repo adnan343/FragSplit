@@ -16,6 +16,8 @@ The `db-roles` job provisions separate PostgreSQL users. The `migrate` job owns 
 
 Nginx uses the Cloudflare client address only for connections from the tunnel connector. Set `TRUSTED_TUNNEL_PROXY` if the connector's Docker DNS name differs from `cloudflared`. Reload the ingress after recreating the connector so Nginx resolves its current address. The Cloudflare edge handles the HTTPS redirect and certificate. [Cloudflare routing guide](https://developers.cloudflare.com/tunnel/concepts/routing/) · [Cloudflare visitor IP header](https://developers.cloudflare.com/fundamentals/reference/http-headers/#cf-connecting-ip)
 
+Set `HSTS_HOST=store.adnanhossain.me` to serve a six-month HSTS header for HTTPS responses from the store hostname. Give `CATALOG_ORIGIN_SECRET` a separate random hex value in the private environment file. The web and API use it to give server-rendered catalog lookups a shared internal budget of 1,800 requests per minute. Public catalog API requests retain their per-client budget.
+
 After a release, check `/health`, the public catalog, HTTP-to-HTTPS redirect and the browser checkout path on a separate test database. Use the base Compose file plus `infra/docker-compose.mailpit.yml` for the isolated mail test. The live database retains historic orders and stock movements.
 
 ## Administrator
