@@ -231,8 +231,10 @@ test("a dropped order response and edited notes leave one order and one reservat
 
 test.describe("signed-in administration", () => {
   test.use({ storageState: adminSession });
-  test("admin creates a five-size listing, uploads artwork and restocks", async ({
+  test("admin creates a listing, manages its images and restocks", async ({
+    admin,
     page,
+    request,
   }, info) => {
     const slug = "browser-" + info.project.name + "-" + Date.now();
     await page.goto("/admin/products");
@@ -300,6 +302,80 @@ test.describe("signed-in administration", () => {
     await expect(
       page.getByRole("button", { name: "30 ml", exact: true }),
     ).toBeEnabled();
+
+    const productPath = "/api/v1/perfumes/" + slug;
+    const product = await (await request.get(productPath)).json();
+    expect(product.images).toHaveLength(2);
+
+    await page.goto("/admin/products");
+    const editProduct = page.getByRole("button", {
+      name: "Edit " + slug,
+      exact: true,
+    });
+    await editProduct.click();
+    const descriptions = page.getByLabel("Image description");
+    const removeFirst = page.getByRole("button", {
+      name: "Remove image 1",
+      exact: true,
+    });
+    await descriptions.nth(1).fill("Citrus bottle");
+    await removeFirst.click();
+    await expect(
+      page.getByText("Image removed.", { exact: true }),
+    ).toBeVisible();
+    await expect(descriptions).toHaveCount(1);
+    await expect(descriptions.first()).toHaveValue("Citrus bottle");
+
+    const afterRemoval = await (await request.get(productPath)).json();
+    expect(afterRemoval.images).toEqual([
+      expect.objectContaining({
+        id: product.images[1].id,
+        path: product.images[1].path,
+        alt: product.images[1].alt,
+      }),
+    ]);
+    expect((await request.get(product.images[0].path)).status()).toBe(404);
+    expect(
+      (
+        await admin.delete(
+          "/api/v1/admin/perfumes/" +
+            product.id +
+            "/images/" +
+            product.images[0].id,
+        )
+      ).status(),
+    ).toBe(204);
+
+    await page.getByRole("button", { name: "Save gallery edits" }).click();
+    await expect(
+      page.getByText("Gallery saved.", { exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await editProduct.click();
+    await expect(descriptions).toHaveCount(1);
+    await expect(descriptions.first()).toHaveValue("Citrus bottle");
+
+    await page.goto("/fragrances/" + slug);
+    await expect(galleryImage).toHaveAttribute("alt", "Citrus bottle");
+    await expectImageLoaded(galleryImage);
+
+    await page.goto("/admin/products");
+    await editProduct.click();
+    await removeFirst.click();
+    await expect(
+      page.getByText("Image removed.", { exact: true }),
+    ).toBeVisible();
+    await expect(descriptions).toHaveCount(0);
+
+    await page.goto("/fragrances/" + slug);
+    await expect(galleryImage).toHaveCount(0);
+    await expect(
+      page
+        .getByRole("main")
+        .getByText("Image coming soon", { exact: true })
+        .first(),
+    ).toBeVisible();
+    expect((await (await request.get(productPath)).json()).images).toEqual([]);
   });
 });
 

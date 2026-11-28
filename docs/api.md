@@ -27,6 +27,7 @@ The API serves the machine-readable contract at `/openapi/v1.json` on its intern
 | GET, POST /admin/perfumes | List or create listings. POST accepts optional openingStockMl (whole ml, 0–1,000,000, default 0). Positive stock records an opening restock in the creation transaction. |
 | GET, PATCH /admin/perfumes/{id} | Get or update all editable listing fields and the five variants. Set active=false to archive. |
 | POST, PUT /admin/perfumes/{id}/images | Multipart image and alt text, or an ordered JSON array of existing image IDs with alt text. Omitted images are detached. |
+| DELETE /admin/perfumes/{id}/images/{imageId} | Immediately detach one image. The remaining images keep their order. Repeating the deletion returns 204. |
 | GET /admin/inventory | Current balances and threshold per perfume |
 | GET, POST /admin/inventory/{id}/movements | Latest 200 movements, or record a signed delta, type, reason and UUID key |
 | GET /admin/orders | Search text, status, method, date bounds and page. Page size is 40. |

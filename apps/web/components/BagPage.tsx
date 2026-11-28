@@ -28,14 +28,18 @@ export function BagPage({ rates }: { rates: number[] }) {
             </dl>
           )}
           <p>Choose your delivery region at checkout to confirm the total.</p>
+        </>
+      )}
+      <div className="bag-page-actions">
+        {cart.lines.length > 0 && (
           <Link className="button primary" href="/checkout">
             Continue to checkout
           </Link>
-        </>
-      )}{" "}
-      <Link className="button outline" href="/fragrances">
-        Continue shopping
-      </Link>
+        )}
+        <Link className="button outline" href="/fragrances">
+          Continue shopping
+        </Link>
+      </div>
     </>
   );
 }

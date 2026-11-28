@@ -73,6 +73,7 @@ public static class Media
             return Results.Stream(await store.Open(key), "image/webp");
         });
         admin.MapPost("/perfumes/{id:int}/images", Upload);
+        admin.MapDelete("/perfumes/{id:int}/images/{imageId:int}", Remove);
         admin.MapPut(
             "/perfumes/{id:int}/images",
             async (int id, ImageEdit[] images, ShopDb db, HttpContext ctx) =>
@@ -103,6 +104,30 @@ public static class Media
                 return Results.NoContent();
             }
         );
+    }
+
+    static async Task<IResult> Remove(int id, int imageId, ShopDb db, HttpContext ctx)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync();
+        var product = await Catalog.Lock(db, id);
+        await db.Entry(product).Collection(x => x.Images).LoadAsync();
+        var image = product.Images.SingleOrDefault(x => x.Id == imageId);
+        if (image == null)
+            return Results.NoContent();
+
+        db.Images.Remove(image);
+        var position = 0;
+        foreach (
+            var remaining in product
+                .Images.Where(x => x.Id != imageId)
+                .OrderBy(x => x.Position)
+                .ThenBy(x => x.Id)
+        )
+            remaining.Position = position++;
+        Catalog.Log(db, Catalog.Actor(ctx), $"Remove image {imageId} from gallery {id}");
+        await db.SaveChangesAsync();
+        await tx.CommitAsync();
+        return Results.NoContent();
     }
 
     static async Task<IResult> Upload(

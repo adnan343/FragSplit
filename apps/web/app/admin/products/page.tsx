@@ -31,7 +31,7 @@ export default function Products() {
             key={id}
             p={selected}
             onSaved={(n) => {
-              choose(n);
+              if (n !== undefined) choose(n);
               reload();
             }}
           />
@@ -45,7 +45,7 @@ function Editor({
   onSaved,
 }: {
   p?: Product;
-  onSaved: (id: number) => void;
+  onSaved: (id?: number) => void;
 }) {
   const [error, fail] = useState(""),
     [text, ok] = useState(""),
@@ -197,34 +197,57 @@ function Editor({
         </button>
       </form>
       <Feedback error={error} text={text} />
-      {p && (
-        <GalleryEditor
-          key={JSON.stringify(p.images)}
-          p={p}
-          refresh={() => onSaved(p.id)}
-        />
-      )}
+      {p && <GalleryEditor p={p} refresh={onSaved} />}
     </section>
   );
 }
 function GalleryEditor({ p, refresh }: { p: Product; refresh: () => void }) {
-  const [images, set] = useState<Picture[]>(p.images),
-    [error, fail] = useState("");
+  const [draft, setDraft] = useState<Picture[] | null>(null);
+  const [removed, setRemoved] = useState<number[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, fail] = useState("");
+  const [notice, inform] = useState("");
+  const galleryPath = "/admin/perfumes/" + p.id + "/images";
+  const saved = p.images.filter((image) => !removed.includes(image.id));
+  const images = draft
+    ? [
+        ...draft.filter((image) =>
+          saved.some((entry) => entry.id === image.id),
+        ),
+        ...saved.filter(
+          (image) => !draft.some((entry) => entry.id === image.id),
+        ),
+      ]
+    : saved;
+
+  async function updateGallery(change: () => Promise<void>, notice: string) {
+    setSaving(true);
+    fail("");
+    inform("");
+    try {
+      await change();
+      refresh();
+      inform(notice);
+    } catch (e) {
+      fail(message(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function upload(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
-    try {
-      await api("/admin/perfumes/" + p.id + "/images", {
+    await updateGallery(async () => {
+      await api(galleryPath, {
         method: "POST",
         body: new FormData(form),
       });
       form.reset();
-      fail("");
-      refresh();
-    } catch (e) {
-      fail(message(e));
-    }
+      setDraft(null);
+    }, "Image uploaded.");
   }
+
   return (
     <>
       <h3>Product gallery</h3>
@@ -235,8 +258,9 @@ function GalleryEditor({ p, refresh }: { p: Product; refresh: () => void }) {
             Image description
             <input
               value={im.alt}
+              disabled={saving}
               onChange={(e) =>
-                set(
+                setDraft(
                   images.map((x) =>
                     x.id === im.id ? { ...x, alt: e.target.value } : x,
                   ),
@@ -245,35 +269,48 @@ function GalleryEditor({ p, refresh }: { p: Product; refresh: () => void }) {
             />
           </label>
           <button
-            disabled={!i}
+            type="button"
+            disabled={saving || !i}
             onClick={() => {
               const a = images.slice();
               [a[i - 1], a[i]] = [a[i], a[i - 1]];
-              set(a);
+              setDraft(a);
             }}
           >
             Move earlier
           </button>
-          <button onClick={() => set(images.filter((x) => x.id !== im.id))}>
-            Remove
+          <button
+            type="button"
+            aria-label={"Remove image " + (i + 1)}
+            disabled={saving}
+            onClick={() =>
+              void updateGallery(async () => {
+                await api(galleryPath + "/" + im.id, { method: "DELETE" });
+                setRemoved((previous) => [...previous, im.id]);
+                setDraft(
+                  (previous) => previous?.filter((x) => x.id !== im.id) ?? null,
+                );
+              }, "Image removed.")
+            }
+          >
+            Remove image
           </button>
         </div>
       ))}
       <button
-        onClick={async () => {
-          try {
-            await api("/admin/perfumes/" + p.id + "/images", {
+        type="button"
+        disabled={saving || draft === null}
+        onClick={() =>
+          void updateGallery(async () => {
+            await api(galleryPath, {
               method: "PUT",
               body: JSON.stringify(images),
             });
-            refresh();
-            fail("");
-          } catch (e) {
-            fail(message(e));
-          }
-        }}
+            setDraft(null);
+          }, "Gallery saved.")
+        }
       >
-        Save gallery order
+        Save gallery edits
       </button>
       <form className="form" onSubmit={upload}>
         <label>
@@ -283,15 +320,16 @@ function GalleryEditor({ p, refresh }: { p: Product; refresh: () => void }) {
             name="image"
             accept="image/png,image/jpeg,image/webp"
             required
+            disabled={saving}
           />
         </label>
         <label>
           Image alt text
-          <input name="alt" required />
+          <input name="alt" required disabled={saving} />
         </label>
-        <button>Upload image</button>
+        <button disabled={saving}>Upload image</button>
       </form>
-      <Feedback error={error} />
+      <Feedback error={error} text={notice} />
     </>
   );
 }
